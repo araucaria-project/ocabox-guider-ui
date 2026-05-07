@@ -106,22 +106,68 @@ src/
     guider-card.component.ts    # one card per discovered guider
 ```
 
-## Status (FL2 dev iteration 1)
+## Status (FL2 — first-light validated)
 
-What works:
-- Discovery: live list of guiders via the standard `svc.status.guiding_svc.guider.>` stream
-- Per-guider state display (mode, acquired_pos, FWHM, exp_time, central_point)
-- Latest thumbnail rendering with cache-bust + acquired-pos crosshair overlay
-- Click-on-image → `acquire_at(x, y)` RPC (sensor-pixel coords)
-- Manual pulse buttons (N/S/E/W, configurable duration)
-- Mode toggle (off / monitoring / guiding) + acquire trigger
-- RPC status feedback under the controls
+Sky-tested 2026-05-07 against the jk15 BESO spectrograph guider. Mode A
+(hold star where it is) converges with calibrated Jacobian; Mode B
+(drop star into fibre) has MVP plumbing.
 
-Not yet:
-- Sensor-shape autodetection from the camera (currently hardcoded 1936×1216)
-- Live correction telemetry plot
-- Multi-pipeline support per instance (the FL1 contract is one pipeline; the
-  store is multi-pipeline ready, the card UI surfaces the first one only)
+### Live dashboard
+- Discovery: live list of guiders via `svc.status.guiding_svc.guider.>`
+- Frame view with sub-pixel star crosshair, draggable target reticle,
+  amber X for ``guide_anchor`` (lock target during guiding), and a
+  cyan-circle overlay for FFS detection candidates
+- Mouse wheel zoom (cursor stays under pointer); overlays use
+  ``vector-effect="non-scaling-stroke"`` so they stay crisp
+- Drift chart (rolling) and image-X / Y scatter wind-rose plot, both
+  axes match the preview frame (no astronomical relabel — image
+  X/Y is the honest coordinate system, RA/Dec mapping per-camera
+  lives in the calibrated Jacobian)
+- Live RA / Dec / total RMS, FWHM placeholder, lock-state colours
+- Camera panel with sparse-overrides (slider committed via Apply) and
+  Rich-style display
+
+### Interaction
+- **Left-click** — ``lock_at(x, y)``: narrow-search seed; in guiding
+  mode also re-anchors ``guide_anchor`` on the picked star (no stray
+  pulses dragging the new star to the old anchor)
+- **Right-click** — ``acquire_at(x, y)``: move the target reticle
+  (admin op, forces wide-search around the new central_point)
+- **TAB / Shift-TAB** — cycle ``lock_at`` through detection candidates
+- **Drop → reticle button** — Mode B fibre-injection: re-anchor active
+  guidance onto ``central_point``
+- **Reticle** — selectable style (six designs + 'none' to suppress);
+  **home** button + ``h`` shortcut restore to the camera-config default
+  (``central_point_default``); markers are hollow at centre so the pixel
+  under the reticle / anchor / star ring stays visible at zoom
+
+### Calibration
+- Collapsible calibration panel with N/S/E/W probe buttons, results
+  table, suggested 2×2 Jacobian YAML
+- **Backlash filter**: first probe of every direction is greyed out
+  in the table and excluded from the Jacobian estimate (mount gear
+  backlash makes that probe ~30-60% smaller than steady-state)
+- **Median over surviving probes** — outlier-resistant
+- Requires ≥1 surviving probe per axis; recommends ≥2 per direction
+  with long pulses (≥1000ms) and long settle (≥2500ms)
+
+### Status / mode
+- Top toolbar: off / monitoring / guiding mode buttons, re-acquire,
+  drop → reticle, calibrate (FL2.1 placeholder)
+- Status bar: mode, acquired y/n, star sub-pixel coords, reticle
+  coords, exposure
+- Help dialog (``?``) listing keyboard + mouse shortcuts
+
+### Not yet
+- Setpoint-vs-actual round-trip indicator (slider committed but no
+  visible "this is the live value" badge)
+- Mode "center" — explicit toggle for guidance always pulling toward
+  the reticle (drop_to_reticle is one-shot equivalent for now)
+- Mount-tracking indicator + auto-revert on tracking-off
+- FWHM and last-correction display (server-side fields scaffolded,
+  not yet emitted)
+- Pixel-mode calibration buttons (N/S/E/W → "↑ +30 px" etc.)
+- Multi-pipeline UI (store is multi-pipeline ready, dashboard
+  surfaces the first one only)
 - Auth / per-user permissions
-- Mobile-tuned layout
-- E2E or unit tests
+- Mobile layout, E2E tests
