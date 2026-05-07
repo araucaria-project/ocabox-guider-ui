@@ -60,11 +60,31 @@ const WHEEL_FACTOR = 1.2;
           [attr.viewBox]="'0 0 ' + sensorWidth() + ' ' + sensorHeight()"
           preserveAspectRatio="xMidYMid meet"
           (click)="onSvgClick($event)"
+          (contextmenu)="onSvgContext($event)"
           (mousemove)="onSvgMove($event)"
           (mouseleave)="hoverPos.set(null)"
           #svg
         >
           @if (state(); as s) {
+            <!-- All FFS detections (debug overlay). Toggled by the
+                 telescope-icon button next to zoom controls. Best-rank
+                 candidate is highlighted; TAB cycles lock_at through
+                 the list in rank order. -->
+            @if (showCandidates() && s.candidates && s.candidates.length > 0) {
+              @for (c of s.candidates; track $index; let i = $index) {
+                <circle
+                  [attr.cx]="c[0]"
+                  [attr.cy]="c[1]"
+                  [attr.r]="overlayMarkerPx() * 0.7"
+                  fill="none"
+                  [attr.stroke]="i === selectedCandidateIndex() ? 'rgba(251, 191, 36, 0.95)' : 'rgba(125, 211, 252, 0.45)'"
+                  [attr.stroke-width]="i === selectedCandidateIndex() ? overlayStrokePx() * 1.2 : overlayStrokePx() * 0.7"
+                  vector-effect="non-scaling-stroke"
+                  pointer-events="none"
+                />
+              }
+            }
+
             <!-- Search circle = wide_search_radius_px around central_point. -->
             <circle
               [attr.cx]="s.central_point[0]"
@@ -78,15 +98,50 @@ const WHEEL_FACTOR = 1.2;
               pointer-events="none"
             />
 
-            <!-- Centre reticle (operator's target). Style is selectable. -->
-            <g
-              appReticle
-              [style]="reticle()"
-              [color]="reticleColor"
-              [len]="overlayCrossPx()"
-              [stroke]="overlayStrokePx()"
-              [attr.transform]="'translate(' + s.central_point[0] + ',' + s.central_point[1] + ')'"
-            ></g>
+            <!-- Centre reticle (operator's target). Style is selectable;
+                 'none' suppresses the overlay entirely (used when star
+                 is in the fibre and any marker would obscure pixels). -->
+            @if (reticle() !== 'none') {
+              <g
+                appReticle
+                [style]="reticle()"
+                [color]="reticleColor"
+                [len]="overlayCrossPx()"
+                [stroke]="overlayStrokePx()"
+                [attr.transform]="'translate(' + s.central_point[0] + ',' + s.central_point[1] + ')'"
+              ></g>
+            }
+
+            <!-- Guide anchor (where guiding holds the star). Only shown
+                 in guiding mode; uses an amber X to distinguish from the
+                 cyan central reticle (target) and the green acquired
+                 marker (current star position). -->
+            @if (s.guide_anchor) {
+              <g
+                [attr.transform]="'translate(' + s.guide_anchor[0] + ',' + s.guide_anchor[1] + ')'"
+                pointer-events="none"
+              >
+                <!-- Broken X: 4 short segments with a gap at the centre
+                     so the pixel under the anchor (= the fibre hole at
+                     zoom) stays visible. -->
+                <line x1="-12" y1="-12" x2="-3" y2="-3"
+                      stroke="rgba(251, 191, 36, 0.85)"
+                      [attr.stroke-width]="overlayStrokePx() * 1.4"
+                      vector-effect="non-scaling-stroke"/>
+                <line x1="3" y1="3" x2="12" y2="12"
+                      stroke="rgba(251, 191, 36, 0.85)"
+                      [attr.stroke-width]="overlayStrokePx() * 1.4"
+                      vector-effect="non-scaling-stroke"/>
+                <line x1="-12" y1="12" x2="-3" y2="3"
+                      stroke="rgba(251, 191, 36, 0.85)"
+                      [attr.stroke-width]="overlayStrokePx() * 1.4"
+                      vector-effect="non-scaling-stroke"/>
+                <line x1="3" y1="-3" x2="12" y2="-12"
+                      stroke="rgba(251, 191, 36, 0.85)"
+                      [attr.stroke-width]="overlayStrokePx() * 1.4"
+                      vector-effect="non-scaling-stroke"/>
+              </g>
+            }
 
             <!-- Acquired star marker (where solver locked on). -->
             @if (s.acquired && s.acquired_pos) {
@@ -100,10 +155,6 @@ const WHEEL_FACTOR = 1.2;
                   stroke="rgb(52, 211, 153)"
                   [attr.stroke-width]="overlayStrokePx() * 1.5"
                   vector-effect="non-scaling-stroke"
-                />
-                <circle
-                  [attr.r]="overlayMarkerPx() * 0.18"
-                  fill="rgb(52, 211, 153)"
                 />
                 <text
                   [attr.x]="overlayMarkerPx() + 4"
@@ -191,8 +242,22 @@ const WHEEL_FACTOR = 1.2;
         </svg>
       </div>
 
-      <!-- ─── Zoom controls ─── -->
+      <!-- ─── Zoom + overlay controls ─── -->
       <div class="absolute top-1 right-1 flex flex-col gap-0.5 z-10">
+        <button
+          type="button"
+          (click)="toggleCandidates()"
+          [class]="showCandidates() ? 'bg-amber-700/80 hover:bg-amber-700 text-amber-50' : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-200'"
+          [title]="showCandidates() ? 'hide detection circles (currently shown — TAB cycles lock)' : 'show all detection candidates as circles (TAB cycles lock through them)'"
+          class="w-7 h-7 rounded disabled:opacity-30 grid place-items-center"
+        >
+          <!-- detection-overlay icon: outer dotted circle + inner dot -->
+          <svg viewBox="0 0 16 16" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
+            <circle cx="8" cy="8" r="6" stroke-dasharray="2 1.5"/>
+            <circle cx="8" cy="8" r="1.4" fill="currentColor" stroke="none"/>
+          </svg>
+        </button>
+        <div class="h-1"></div>
         <button
           type="button"
           (click)="zoomIn()"
@@ -245,12 +310,12 @@ const WHEEL_FACTOR = 1.2;
       <div class="absolute bottom-1 right-2 flex flex-col items-end gap-0.5 text-[10px] font-mono text-zinc-300 pointer-events-none z-10">
         @if (hoverPos(); as h) {
           <div class="bg-black/50 px-1.5 py-0.5 rounded">
-            cursor ({{ h[0] | number:'1.0-0' }}, {{ h[1] | number:'1.0-0' }})
+            cursor ({{ h[0] | number:'1.2-2' }}, {{ h[1] | number:'1.2-2' }})
           </div>
         }
         @if (state()?.acquired_pos; as p) {
           <div class="bg-black/50 px-1.5 py-0.5 rounded text-emerald-300">
-            star ({{ p[0] | number:'1.0-0' }}, {{ p[1] | number:'1.0-0' }})
+            star ({{ p[0] | number:'1.2-2' }}, {{ p[1] | number:'1.2-2' }})
           </div>
         }
       </div>
@@ -274,7 +339,14 @@ export class FrameViewComponent {
    *  cyan overlays (search circle, scale bar). */
   readonly reticleColor = 'rgba(125, 211, 252, 0.85)';
 
-  /** Fired when the user clicks on the field — coordinates are sensor pixels. */
+  /** Left-click on the frame — routine "lock onto a star near (x, y)".
+   *  Server narrow-search refines to the actual star peak; doesn't move
+   *  the mount, doesn't change central_point. Sensor-pixel coords. */
+  lockAt = output<{ x: number; y: number }>();
+
+  /** Right-click on the frame — admin "move target reticle to (x, y)".
+   *  Changes ``central_point`` and forces the next wide-search to fire
+   *  around the new target. Rare operator action. Sensor-pixel coords. */
   acquireAt = output<{ x: number; y: number }>();
 
   hoverPos = signal<[number, number] | null>(null);
@@ -282,6 +354,15 @@ export class FrameViewComponent {
   /** Pan/zoom state. The single source of truth — all derived values
    *  (transform, indicator visibility, button enablement) flow from it. */
   view = signal<View>(HOME_VIEW);
+
+  /** Detection-circles overlay toggle. Persists through localStorage so
+   *  it survives reloads — operators who like seeing the population
+   *  don't have to keep re-enabling. */
+  showCandidates = signal<boolean>(this.loadShowCandidates());
+  /** Index into ``state.candidates`` for which circle is highlighted.
+   *  Driven by TAB key (next) / Shift-TAB (prev) and reset to 0 on
+   *  every fresh candidate list. ``-1`` means nothing highlighted. */
+  selectedCandidateIndex = signal<number>(-1);
 
   readonly ZOOM_MIN = ZOOM_MIN;
   readonly ZOOM_MAX = ZOOM_MAX;
@@ -335,6 +416,15 @@ export class FrameViewComponent {
   onSvgClick(ev: MouseEvent): void {
     const pt = this.svgPoint(ev);
     if (!pt) return;
+    this.lockAt.emit({ x: pt[0], y: pt[1] });
+  }
+
+  onSvgContext(ev: MouseEvent): void {
+    // Right-click reassigns the operator's target reticle. Suppress the
+    // browser context menu so the click reaches us.
+    ev.preventDefault();
+    const pt = this.svgPoint(ev);
+    if (!pt) return;
     this.acquireAt.emit({ x: pt[0], y: pt[1] });
   }
 
@@ -346,6 +436,34 @@ export class FrameViewComponent {
   zoomIn(): void { this.zoomBy(BUTTON_FACTOR, null); }
   zoomOut(): void { this.zoomBy(1 / BUTTON_FACTOR, null); }
   home(): void { this.view.set(HOME_VIEW); }
+
+  toggleCandidates(): void {
+    const next = !this.showCandidates();
+    this.showCandidates.set(next);
+    try { localStorage.setItem('frameview.showCandidates', next ? '1' : '0'); } catch { /* ignore */ }
+    if (!next) this.selectedCandidateIndex.set(-1);
+  }
+
+  /** Step the highlighted candidate by ``delta`` (typically ±1 for
+   *  TAB / Shift-TAB). Wraps around. Emits ``lockAt`` for the new
+   *  selection so the operator immediately sees the lock move.
+   *  Returns true if a candidate was selected, false if the list is
+   *  empty/missing. */
+  cycleCandidate(delta: number = 1): boolean {
+    const list = this.state()?.candidates ?? null;
+    if (!list || list.length === 0) return false;
+    const cur = this.selectedCandidateIndex();
+    const next = ((cur < 0 ? -1 : cur) + delta + list.length) % list.length;
+    this.selectedCandidateIndex.set(next);
+    const [x, y] = list[next];
+    this.lockAt.emit({ x, y });
+    return true;
+  }
+
+  private loadShowCandidates(): boolean {
+    try { return localStorage.getItem('frameview.showCandidates') === '1'; }
+    catch { return false; }
+  }
 
   /** Zoom by ``factor`` around ``pivot`` (host-relative coords). When
    *  ``pivot`` is null the host centre is used (button behaviour). */

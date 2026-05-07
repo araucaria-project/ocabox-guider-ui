@@ -72,18 +72,32 @@ import { GuiderDashboardComponent } from './components/guider-dashboard.componen
       @if (shortcutsOpen()) {
         <div class="fixed inset-0 bg-black/60 flex items-center justify-center z-40"
              (click)="shortcutsOpen.set(false)">
-          <div class="rounded-lg bg-zinc-900 border border-zinc-700 p-6 max-w-md w-full"
+          <div class="rounded-lg bg-zinc-900 border border-zinc-700 p-6 max-w-lg w-full"
                (click)="$event.stopPropagation()">
             <div class="flex items-center justify-between mb-3">
-              <h2 class="font-semibold">Keyboard shortcuts</h2>
+              <h2 class="font-semibold">Help — controls</h2>
               <button class="text-zinc-500 hover:text-zinc-200"
                       (click)="shortcutsOpen.set(false)">✕</button>
             </div>
+
+            <h3 class="text-[11px] uppercase tracking-wider text-zinc-500 mt-2 mb-1">Frame view (mouse)</h3>
+            <table class="w-full text-sm font-mono mb-3">
+              <tbody class="text-zinc-300">
+                @for (row of mouseShortcuts; track row.key) {
+                  <tr>
+                    <td class="py-1 pr-3 text-emerald-400 whitespace-nowrap">{{ row.key }}</td>
+                    <td class="text-zinc-400">{{ row.desc }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+
+            <h3 class="text-[11px] uppercase tracking-wider text-zinc-500 mt-2 mb-1">Keyboard</h3>
             <table class="w-full text-sm font-mono">
               <tbody class="text-zinc-300">
                 @for (row of shortcuts; track row.key) {
                   <tr>
-                    <td class="py-1 pr-3 text-emerald-400">{{ row.key }}</td>
+                    <td class="py-1 pr-3 text-emerald-400 whitespace-nowrap">{{ row.key }}</td>
                     <td class="text-zinc-400">{{ row.desc }}</td>
                   </tr>
                 }
@@ -117,10 +131,19 @@ export class AppComponent implements OnInit {
     { key: 'g',         desc: 'mode → guiding' },
     { key: 'm',         desc: 'mode → monitoring' },
     { key: 'o',         desc: 'mode → off' },
-    { key: 'r',         desc: 're-acquire (force wide-search)' },
+    { key: 'r',         desc: 're-acquire (force wide-search around target)' },
+    { key: 'h',         desc: 'reticle home (restore to camera-config default)' },
     { key: '+ / -',     desc: 'zoom in / out (frame)' },
     { key: '0',         desc: 'reset zoom (1:1)' },
+    { key: 'd',         desc: 'toggle detection-candidates overlay' },
+    { key: 'tab / ⇧tab', desc: 'cycle lock through candidates (next / prev)' },
     { key: 'esc',       desc: 'close panels' },
+  ];
+
+  readonly mouseShortcuts: { key: string; desc: string }[] = [
+    { key: 'left-click',  desc: 'lock onto a star near click — narrow search refines to peak; mount untouched' },
+    { key: 'right-click', desc: 'move target reticle (central_point) — rare admin op, forces wide-search' },
+    { key: 'wheel',       desc: 'zoom (cursor stays under pointer)' },
   ];
 
   constructor() {
@@ -183,9 +206,14 @@ export class AppComponent implements OnInit {
       case 'm': dashboard?.setMode('monitoring'); return;
       case 'o': dashboard?.setMode('off'); return;
       case 'r': dashboard?.acquire(); return;
+      case 'h': dashboard?.reticleHome(); return;
       case '+': case '=': dashboard?.zoomIn(); ev.preventDefault(); return;
       case '-': case '_': dashboard?.zoomOut(); ev.preventDefault(); return;
       case '0': dashboard?.zoomHome(); ev.preventDefault(); return;
+      case 'd': dashboard?.toggleCandidates(); return;
+      case 'Tab':
+        dashboard?.cycleCandidate(ev.shiftKey ? -1 : +1);
+        ev.preventDefault(); return;
     }
   }
 

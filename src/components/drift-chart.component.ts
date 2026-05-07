@@ -3,9 +3,14 @@ import { CommonModule } from '@angular/common';
 import { DriftPoint } from '../services/guider.store';
 
 /**
- * Rolling drift-error chart. Two lines (RA red, Dec blue) on a shared time
- * axis. Y axis auto-scales but starts at ±5 px so a stable acquired star
- * has visible jitter rather than a flat line on top of the axis.
+ * Rolling drift-error chart. Two lines (image-X red, image-Y blue) on a
+ * shared time axis. Y axis auto-scales but starts at ±5 px so a stable
+ * acquired star has visible jitter rather than a flat line on top of
+ * the axis.
+ *
+ * Axes are IMAGE pixel space, not astronomical — the mapping image →
+ * RA/Dec is per-camera (transpose, mounting orientation) and lives in
+ * the calibrated Jacobian. The chart deliberately stays neutral.
  *
  * In monitoring mode this is the un-corrected drift — the operator can
  * read tracking quality directly off the slope. In guiding mode it's
@@ -41,10 +46,10 @@ import { DriftPoint } from '../services/guider.store';
           stroke-width="1"
         />
 
-        @if (raPath(); as p) {
+        @if (xPath(); as p) {
           <path [attr.d]="p" fill="none" stroke="rgb(244, 63, 94)" stroke-width="1.5"/>
         }
-        @if (decPath(); as p) {
+        @if (yPath(); as p) {
           <path [attr.d]="p" fill="none" stroke="rgb(56, 189, 248)" stroke-width="1.5"/>
         }
 
@@ -77,8 +82,8 @@ import { DriftPoint } from '../services/guider.store';
 
       <!-- Legend overlay -->
       <div class="absolute top-1 right-2 flex gap-3 text-[10px] font-mono pointer-events-none">
-        <span class="text-rose-400">━ RA dx</span>
-        <span class="text-sky-400">━ Dec dy</span>
+        <span class="text-rose-400">━ X dx</span>
+        <span class="text-sky-400">━ Y dy</span>
         <span class="text-zinc-500">{{ points().length }} pts</span>
       </div>
     </div>
@@ -137,8 +142,8 @@ export class DriftChartComponent {
     return out;
   });
 
-  raPath = computed(() => this.buildPath('dx'));
-  decPath = computed(() => this.buildPath('dy'));
+  xPath = computed(() => this.buildPath('dx'));
+  yPath = computed(() => this.buildPath('dy'));
 
   private buildPath(axis: 'dx' | 'dy'): string | null {
     const pts = this.points();

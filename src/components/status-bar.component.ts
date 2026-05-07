@@ -26,10 +26,10 @@ import { GuiderInfo, PipelineState } from '../services/guider.store';
 
       <span>acquired: {{ state()?.acquired ? 'yes' : 'no' }}</span>
       @if (state()?.acquired_pos; as p) {
-        <span>star ({{ p[0] | number:'1.0-0' }}, {{ p[1] | number:'1.0-0' }})</span>
+        <span>star ({{ p[0] | number:'1.2-2' }}, {{ p[1] | number:'1.2-2' }})</span>
       }
       @if (state()?.central_point; as c) {
-        <span>centre ({{ c[0] | number:'1.0-0' }}, {{ c[1] | number:'1.0-0' }})</span>
+        <span>reticle ({{ c[0] | number:'1.2-2' }}, {{ c[1] | number:'1.2-2' }})</span>
       }
       @if (state()?.exp_time; as e) {
         <span>exp {{ e }}s</span>

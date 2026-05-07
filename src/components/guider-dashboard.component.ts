@@ -7,6 +7,7 @@ import { ScatterPlotComponent } from './scatter-plot.component';
 import { ModeToolbarComponent } from './mode-toolbar.component';
 import { CameraPanelComponent } from './camera-panel.component';
 import { PulsePadComponent } from './pulse-pad.component';
+import { CalibrationPanelComponent, ProbeRunner } from './calibration-panel.component';
 import { JournalPanelComponent } from './journal-panel.component';
 import { StatusBarComponent } from './status-bar.component';
 import { ReticleStyle } from './reticle.component';
@@ -44,6 +45,7 @@ const RETICLE_KEY = 'ocabox-guider.reticle';
     ModeToolbarComponent,
     CameraPanelComponent,
     PulsePadComponent,
+    CalibrationPanelComponent,
     JournalPanelComponent,
     StatusBarComponent,
   ],
@@ -54,6 +56,8 @@ const RETICLE_KEY = 'ocabox-guider.reticle';
         [reticle]="reticle()"
         (modeRequested)="setMode($event)"
         (acquireRequested)="acquire()"
+        (dropToReticleRequested)="dropToReticle()"
+        (reticleHomeRequested)="reticleHome()"
         (reticleChanged)="setReticle($event)"
       ></app-mode-toolbar>
 
@@ -65,6 +69,7 @@ const RETICLE_KEY = 'ocabox-guider.reticle';
             [state]="state()"
             [instance]="guider().instance"
             [reticle]="reticle()"
+            (lockAt)="lockAt($event.x, $event.y)"
             (acquireAt)="acquireAt($event.x, $event.y)"
           ></app-frame-view>
         </div>
@@ -162,6 +167,12 @@ const RETICLE_KEY = 'ocabox-guider.reticle';
               #pad
               (pulse)="manualPulse($event)"
             ></app-pulse-pad>
+          </div>
+          <div>
+            <app-calibration-panel
+              [state]="state()"
+              [runProbe]="probeRunner"
+            ></app-calibration-panel>
           </div>
         </div>
       </div>
@@ -280,13 +291,48 @@ export class GuiderDashboardComponent {
       this.store.acquire(this.guider().instance, this.firstPipelineId()));
   }
 
+  dropToReticle(): void {
+    this.runRpc('drop_to_reticle', () =>
+      this.store.dropToReticle(this.guider().instance, this.firstPipelineId()));
+  }
+
+  /** Restore the reticle to its camera-default position (from YAML
+   *  config, exposed by the server as ``state.central_point_default``).
+   *  Issued via ``acquire_at`` since that's the existing reticle-move
+   *  RPC — operator drags via right-click → ``acquire_at``, "home"
+   *  button = ``acquire_at`` to the configured default. */
+  reticleHome(): void {
+    const def = this.state()?.central_point_default;
+    if (!def) return;
+    const [x, y] = def;
+    this.runRpc('reticle_home', () =>
+      this.store.acquireAt(this.guider().instance, this.firstPipelineId(), x, y));
+  }
+
+  /** Bound RPC entry-point passed into ``<app-calibration-panel>``.
+   *  Defined as a field-arrow so ``this`` stays correct when invoked
+   *  from the child without rebinding. The panel doesn't need to know
+   *  about NATS, GuiderStore, or which pipeline is "first" — that
+   *  routing happens here. */
+  probeRunner: ProbeRunner = (direction, durationMs) =>
+    this.store.calibrateProbe(
+      this.guider().instance, this.firstPipelineId(), direction, durationMs,
+    );
+
   zoomIn(): void { this.frameView()?.zoomIn(); }
   zoomOut(): void { this.frameView()?.zoomOut(); }
   zoomHome(): void { this.frameView()?.home(); }
+  toggleCandidates(): void { this.frameView()?.toggleCandidates(); }
+  cycleCandidate(delta: number = 1): void { this.frameView()?.cycleCandidate(delta); }
 
   acquireAt(x: number, y: number): void {
     this.runRpc(`acquire_at(${Math.round(x)}, ${Math.round(y)})`, () =>
       this.store.acquireAt(this.guider().instance, this.firstPipelineId(), x, y));
+  }
+
+  lockAt(x: number, y: number): void {
+    this.runRpc(`lock_at(${Math.round(x)}, ${Math.round(y)})`, () =>
+      this.store.lockAt(this.guider().instance, this.firstPipelineId(), x, y));
   }
 
   applyCameraPatch(patch: Record<string, unknown>): void {

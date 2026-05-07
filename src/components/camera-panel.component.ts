@@ -41,11 +41,11 @@ type Snapshot = {
             <span class="text-zinc-400">exposure</span>
             <span class="font-mono"
                   [class.text-amber-300]="dirtyExpTime()">
-              {{ valueExpTime() | number:'1.2-2' }}s
+              {{ valueExpTime() | number:'1.2-3' }}s
             </span>
           </div>
           <input type="range" class="w-full accent-emerald-500"
-                 min="0.05" max="10" step="0.05"
+                 min="0.001" max="10" step="0.001"
                  [ngModel]="valueExpTime()"
                  (ngModelChange)="set('exp_time', $event)"/>
           <div class="flex gap-1 mt-1">
@@ -152,7 +152,7 @@ export class CameraPanelComponent {
     };
   });
 
-  readonly expPresets = [0.1, 0.5, 1, 2, 5];
+  readonly expPresets = [0.001, 0.01, 0.1, 0.5, 1, 2, 5];
   readonly binPresets = [1, 2];
 
   // Per-field accessors — overrides shadow upstream for that field only.

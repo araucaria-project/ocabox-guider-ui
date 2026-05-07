@@ -57,11 +57,25 @@ export interface PipelineState {
   binning: number;
   gain: number | null;
   central_point: [number, number];
+  /** Camera-default reticle position from YAML config — immutable
+   *  after pipeline boot. UI uses for the "home" reticle button to
+   *  restore after dragging. ``null`` when not configured. */
+  central_point_default: [number, number] | null;
   wide_search_radius_px: number;
   search_reg_px: number;
   acquired: boolean;
   acquired_pos: [number, number] | null;
   acquired_adu: number | null;
+  /** Lock target during guiding mode — snapshot of ``acquired_pos`` at
+   *  the moment the operator switched to guiding. Solver corrects
+   *  toward this point. ``null`` outside guiding (solver falls back
+   *  to ``central_point``). Distinct from ``central_point`` (the
+   *  operator's draggable target reticle). */
+  guide_anchor: [number, number] | null;
+  /** Per-frame detection list ``[(x, y, adu), …]`` in solver rank
+   *  order (best-first). Populated by the wide-search pass; null when
+   *  the solver hasn't published a list yet. */
+  candidates: [number, number, number][] | null;
   fwhm_recent: number | null;
   last_correction_dx_px: number | null;
   last_correction_dy_px: number | null;
@@ -251,6 +265,21 @@ export class GuiderStore {
   async acquireAt(instance: string, pipelineId: string, x: number, y: number): Promise<unknown> {
     return this.callRpc(instance, pipelineId, 'acquire_at', { x, y });
   }
+  /** Seed the lock onto a star near (x, y). Solver narrow-search refines
+   *  to the actual star peak in ``search_reg_px`` on the next frame. Does
+   *  not change ``central_point``; does not move the mount. */
+  async lockAt(instance: string, pipelineId: string, x: number, y: number): Promise<unknown> {
+    return this.callRpc(instance, pipelineId, 'lock_at', { x, y });
+  }
+
+  /** Drop the star into the reticle — re-anchors active guidance onto
+   *  ``central_point``. Pre-conditions enforced server-side: must be
+   *  in guiding mode AND acquired. Used for fibre-injection: operator
+   *  positions the reticle over the spectrograph fibre entrance, then
+   *  triggers this to make the controller pull the star into the fibre. */
+  async dropToReticle(instance: string, pipelineId: string): Promise<unknown> {
+    return this.callRpc(instance, pipelineId, 'drop_to_reticle', {});
+  }
   async manualPulse(
     instance: string, pipelineId: string,
     direction: number | string, durationMs: number,
@@ -261,6 +290,18 @@ export class GuiderStore {
   }
   async snapshot(instance: string, pipelineId: string): Promise<unknown> {
     return this.callRpc(instance, pipelineId, 'snapshot', {});
+  }
+  /** Issue a calibration probe — pulse the mount in one direction
+   *  and measure the resulting star displacement. Returns delta in
+   *  pixels and per-millisecond rates. Pre-conditions enforced
+   *  server-side: must be acquired AND in monitoring mode. */
+  async calibrateProbe(
+    instance: string, pipelineId: string,
+    direction: number | string, durationMs: number,
+  ): Promise<unknown> {
+    return this.callRpc(instance, pipelineId, 'calibrate_probe', {
+      direction, duration_ms: durationMs,
+    });
   }
 
   private async callRpc(
@@ -376,13 +417,18 @@ export class GuiderStore {
       return next;
     });
 
-    // Append a drift sample whenever we have an acquired position to
-    // compare against the (possibly newly-set) central_point. We use the
-    // wall clock — state updates are bursty (every set_state bumps
-    // version), but visually the chart is anchored on time-of-arrival.
+    // Append a drift sample whenever we have an acquired position. The
+    // reference point matches what the solver actually corrects toward:
+    // ``guide_anchor`` during guiding (= where lock was when guiding
+    // turned on, or the pulse-slew target), falling back to
+    // ``central_point`` outside guiding so RMS still tracks the
+    // operator's intended target. Wall-clock t — state updates are
+    // bursty (every set_state bumps version) but the chart is anchored
+    // on time-of-arrival.
     if (state.acquired && state.acquired_pos && state.central_point) {
-      const dx = state.acquired_pos[0] - state.central_point[0];
-      const dy = state.acquired_pos[1] - state.central_point[1];
+      const ref = state.guide_anchor ?? state.central_point;
+      const dx = state.acquired_pos[0] - ref[0];
+      const dy = state.acquired_pos[1] - ref[1];
       const t = Date.now();
       this.drift.update(prev => {
         const next = new Map(prev);

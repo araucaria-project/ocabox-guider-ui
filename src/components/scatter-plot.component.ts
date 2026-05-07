@@ -3,12 +3,23 @@ import { CommonModule } from '@angular/common';
 import { DriftPoint } from '../services/guider.store';
 
 /**
- * Scatter plot of recent drift error points (RA error vs Dec error).
+ * Scatter plot of recent drift error points in IMAGE pixel space.
  *
- * The drift chart shows error *over time* — useful for trends. The scatter
- * complements it by showing *distribution*: a tight cluster around the
- * origin = good guiding; a smear in one axis = mount drift in that axis;
- * a streak = systematic error / periodic error.
+ * Axes match the preview frame: X horizontal, Y vertical going DOWN
+ * (image convention, not astronomical). A drift the operator sees in
+ * the live image will appear in the same direction on this chart.
+ *
+ * Mapping image-X / Y → RA / Dec is per-camera (depends on optics +
+ * any ``protocol.transpose`` flag) and lives in the calibrated Jacobian
+ * — we deliberately don't expose it here, because labelling axes "RA"
+ * and "Dec" was wrong for cameras with a transpose (e.g. BESO, where
+ * the calibrated mapping is N→image-X / E→image-Y, the opposite of the
+ * naive guess).
+ *
+ * The drift chart shows error *over time* — useful for trends. The
+ * scatter complements it by showing *distribution*: a tight cluster
+ * around the origin = good guiding; a smear in one axis = mount drift
+ * in that axis; a streak = systematic error / periodic error.
  *
  * Older points fade so the eye anchors on recent samples.
  */
@@ -40,13 +51,13 @@ import { DriftPoint } from '../services/guider.store';
                   stroke-dasharray="3 3"/>
         }
 
-        <!-- Axis labels -->
+        <!-- Axis labels — image coords (X right, Y down — matches preview) -->
         <text [attr.x]="W - 4" [attr.y]="cy - 4"
               text-anchor="end" font-size="9" font-family="ui-monospace, monospace"
-              fill="rgb(244, 63, 94)">RA→</text>
-        <text [attr.x]="cx + 4" y="9"
+              fill="rgb(113, 113, 122)">X→</text>
+        <text [attr.x]="cx + 4" [attr.y]="H - 4"
               font-size="9" font-family="ui-monospace, monospace"
-              fill="rgb(56, 189, 248)">Dec↑</text>
+              fill="rgb(113, 113, 122)">Y↓</text>
 
         <!-- Extent label -->
         <text x="3" [attr.y]="H - 3"
@@ -114,8 +125,8 @@ export class ScatterPlotComponent {
     for (let i = 0; i < n; i++) {
       const p = pts[i];
       const x = this.cx + (p.dx / e) * half;
-      // Y axis inverted — positive Dec error = up
-      const y = this.cy - (p.dy / e) * half;
+      // Image convention — Y axis down, matching the preview frame.
+      const y = this.cy + (p.dy / e) * half;
       // Newer points are bigger and brighter
       const ageNorm = i / Math.max(1, n - 1); // 0 = oldest, 1 = newest
       const r = 1.4 + ageNorm * 1.6;

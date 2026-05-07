@@ -36,6 +36,15 @@ import { RETICLES, RETICLE_LABELS, ReticleStyle } from './reticle.component';
       </button>
 
       <button
+        class="rounded px-3 py-1.5 text-xs font-medium border transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        [class]="dropEnabled() ? 'border-emerald-500 bg-emerald-700/80 hover:bg-emerald-600 text-emerald-50' : 'border-zinc-700 bg-zinc-900 text-zinc-400'"
+        [disabled]="!dropEnabled()"
+        [title]="dropEnabled() ? 'pull star into reticle (drop into fibre)' : 'requires guiding mode + active lock'"
+        (click)="dropToReticleRequested.emit()">
+        drop → reticle
+      </button>
+
+      <button
         class="rounded px-3 py-1.5 text-xs font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-100 disabled:opacity-50"
         [disabled]="true"
         title="calibration wizard — FL2.1">
@@ -54,6 +63,13 @@ import { RETICLES, RETICLE_LABELS, ReticleStyle } from './reticle.component';
             <option [value]="r" [selected]="r === reticle()">{{ labels[r] }}</option>
           }
         </select>
+        <button
+          class="rounded bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed text-zinc-100 px-2 py-1 text-[10px]"
+          [disabled]="!homeEnabled()"
+          [title]="homeEnabled() ? 'restore reticle to camera default position (h)' : 'no default reticle position configured'"
+          (click)="reticleHomeRequested.emit()">
+          home
+        </button>
       </label>
     </div>
   `,
@@ -64,7 +80,23 @@ export class ModeToolbarComponent {
 
   modeRequested = output<string>();
   acquireRequested = output<void>();
+  dropToReticleRequested = output<void>();
+  reticleHomeRequested = output<void>();
   reticleChanged = output<ReticleStyle>();
+
+  /** Server-side ``drop_to_reticle`` requires mode=guiding + acquired.
+   *  Mirror the precondition client-side so the button is visibly
+   *  disabled rather than firing an RPC that returns an error. */
+  dropEnabled = computed(() => {
+    const s = this.state();
+    return !!s && s.mode === 'guiding' && s.acquired;
+  });
+
+  /** Reticle "home" only meaningful when the camera config provides a
+   *  default position; without one the button is greyed out (no
+   *  ambiguity vs falling back to e.g. sensor centre, which would
+   *  pretend a default exists). */
+  homeEnabled = computed(() => !!this.state()?.central_point_default);
 
   readonly modes = [
     { value: 'off', label: 'off' },

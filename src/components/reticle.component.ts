@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 
 export type ReticleStyle =
+  | 'none'
   | 'classic'
   | 'scifi'
   | 'fighter'
@@ -9,6 +10,7 @@ export type ReticleStyle =
   | 'sniper';
 
 export const RETICLE_LABELS: Record<ReticleStyle, string> = {
+  none: 'None (hidden)',
   classic: 'Classic',
   scifi: 'Sci-fi HUD',
   fighter: 'Fighter HUD',
@@ -17,7 +19,7 @@ export const RETICLE_LABELS: Record<ReticleStyle, string> = {
   sniper: 'Sniper duplex',
 };
 
-export const RETICLES: ReticleStyle[] = ['classic', 'scifi', 'fighter', 'tank', 'finder', 'sniper'];
+export const RETICLES: ReticleStyle[] = ['none', 'classic', 'scifi', 'fighter', 'tank', 'finder', 'sniper'];
 
 /**
  * Reticle overlay drawn on the frame view at the configured center point.
@@ -42,7 +44,6 @@ export const RETICLES: ReticleStyle[] = ['classic', 'scifi', 'fighter', 'tank', 
                 [attr.stroke]="color()" vector-effect="non-scaling-stroke" [attr.stroke-width]="stroke()"/>
           <svg:line x1="0" x2="0" [attr.y1]="-len()" [attr.y2]="len()"
                 [attr.stroke]="color()" vector-effect="non-scaling-stroke" [attr.stroke-width]="stroke()"/>
-          <svg:circle r="3" [attr.fill]="color()"/>
         </svg:g>
       }
 
@@ -65,7 +66,6 @@ export const RETICLES: ReticleStyle[] = ['classic', 'scifi', 'fighter', 'tank', 
                 [attr.stroke]="color()" vector-effect="non-scaling-stroke" [attr.stroke-width]="stroke() * 1.2"/>
           <svg:line x1="0" x2="0" [attr.y1]="len() * 0.45" [attr.y2]="len() * 0.15"
                 [attr.stroke]="color()" vector-effect="non-scaling-stroke" [attr.stroke-width]="stroke() * 1.2"/>
-          <svg:circle r="2.5" [attr.fill]="color()"/>
           <svg:circle [attr.r]="len() * 0.18" fill="none"
                   [attr.stroke]="color()" vector-effect="non-scaling-stroke" [attr.stroke-width]="stroke() * 0.6"/>
         </svg:g>
@@ -73,7 +73,6 @@ export const RETICLES: ReticleStyle[] = ['classic', 'scifi', 'fighter', 'tank', 
 
       @case ('fighter') {
         <svg:g pointer-events="none">
-          <svg:circle r="2" [attr.fill]="color()"/>
           <svg:circle [attr.r]="len() * 0.28" fill="none"
                   [attr.stroke]="color()" vector-effect="non-scaling-stroke" [attr.stroke-width]="stroke()"/>
           <svg:g [attr.fill]="color()">
@@ -141,7 +140,6 @@ export const RETICLES: ReticleStyle[] = ['classic', 'scifi', 'fighter', 'tank', 
                   [attr.y1]="t * len()" [attr.y2]="t * len()"
                   [attr.stroke]="color()" vector-effect="non-scaling-stroke" [attr.stroke-width]="stroke() * 0.6"/>
           }
-          <svg:circle r="1.5" [attr.fill]="color()"/>
         </svg:g>
       }
 
