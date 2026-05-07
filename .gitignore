@@ -1,0 +1,10 @@
+node_modules/
+dist/
+out-tsc/
+.DS_Store
+.angular/
+*.log
+*.tsbuildinfo
+.env
+.idea/
+.vscode/

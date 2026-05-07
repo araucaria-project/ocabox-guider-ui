@@ -1,0 +1,18 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.thumb-canvas {
+  /* Crisp pixel preview — preserve hard edges on raw camera output */
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
