@@ -448,10 +448,46 @@ export class GuiderStore {
     // anything) or matches an obvious dev default. Don't clobber
     // operator overrides — they may have a reason (proxied URL, port
     // forward, NFS-attached different hostname).
-    const current = this.thumbnailHttpBase().trim();
-    const isDefault = current === '' || current === 'http://localhost:8080';
-    if (isDefault) {
+    const currentBase = this.thumbnailHttpBase().trim();
+    const baseIsDefault = currentBase === '' || currentBase === 'http://localhost:8080';
+    if (baseIsDefault) {
       this.setThumbnailHttpBase(baseUrl);
+    }
+    // Auto-fill the filesystem prefix the same way: if the published
+    // base URL has a non-root path component (e.g. ``…:8090/thumbs``),
+    // find the root whose URL prefix matches and use its filesystem
+    // ``directory`` as the strip prefix. The guider publishes absolute
+    // ``path`` values in its frame.thumbnail.ready notifications; we
+    // strip this prefix to map them onto fetchable URLs.
+    // Two roots are typical: ``/thumbs → <thumbs-dir>`` (this one) and
+    // ``/ → <ui-dist>`` (SPA host). We pick the thumbnails one by
+    // matching base-URL path against the root's ``prefix``.
+    const rootsRaw = ts['roots'];
+    if (!Array.isArray(rootsRaw) || rootsRaw.length === 0) return;
+    const baseUrlPath = (() => {
+      try { return new URL(baseUrl).pathname.replace(/\/+$/, ''); }
+      catch { return ''; }
+    })();
+    type Root = { prefix?: unknown; directory?: unknown };
+    const roots = rootsRaw as Root[];
+    const norm = (s: string) => s.replace(/\/+$/, '') || '/';
+    let matched = roots.find(
+      r => typeof r.prefix === 'string' && norm(r.prefix as string) === norm(baseUrlPath),
+    );
+    if (!matched && baseUrlPath === '') {
+      // base_url has no path — first non-``/`` root is the thumbnails
+      // mount (the bare ``/`` mount, if present, is the SPA host).
+      matched = roots.find(
+        r => typeof r.prefix === 'string' && norm(r.prefix as string) !== '/',
+      ) ?? roots[0];
+    }
+    if (!matched || typeof matched.directory !== 'string') return;
+    const directory = (matched.directory as string).replace(/\/+$/, '');
+    if (!directory) return;
+    const currentPrefix = this.thumbnailPathPrefix().trim();
+    const prefixIsDefault = currentPrefix === '' || currentPrefix === '/tmp/guider_thumbs';
+    if (prefixIsDefault) {
+      this.setThumbnailPathPrefix(directory);
     }
   }
 
