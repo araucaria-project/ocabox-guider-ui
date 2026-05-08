@@ -36,10 +36,9 @@ import { RETICLES, RETICLE_LABELS, ReticleStyle } from './reticle.component';
       </button>
 
       <button
-        class="rounded px-3 py-1.5 text-xs font-medium border transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-        [class]="dropEnabled() ? 'border-emerald-500 bg-emerald-700/80 hover:bg-emerald-600 text-emerald-50' : 'border-zinc-700 bg-zinc-900 text-zinc-400'"
+        class="rounded px-3 py-1.5 text-xs font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-100 disabled:opacity-40 disabled:cursor-not-allowed"
         [disabled]="!dropEnabled()"
-        [title]="dropEnabled() ? 'pull star into reticle (drop into fibre)' : 'requires guiding mode + active lock'"
+        [title]="dropEnabled() ? 'pull star into reticle (drop into fibre) — one-shot command' : 'requires guiding mode + active lock'"
         (click)="dropToReticleRequested.emit()">
         drop → reticle
       </button>

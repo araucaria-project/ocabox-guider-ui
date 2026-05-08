@@ -43,9 +43,22 @@ export class JournalPanelComponent {
   events = input.required<Array<{ event: string; payload: unknown; ts: number[] }>>();
   journal = input.required<JournalEntry[]>();
 
+  /** Events that are intentionally hidden from the operator-facing
+   *  journal feed because they're high-frequency telemetry rather
+   *  than diagnostic information. Visible on the chart (auto-pulse
+   *  ticks), persisted on NATS for log/replay, but the journal panel
+   *  stays readable.
+   *
+   *  Currently muted:
+   *    - ``enforcer_pulse``: every guidance correction. Cadence is
+   *      shown as ticks on the drift chart; details land in
+   *      ``/tmp/guider.log`` for post-mortem. */
+  private readonly mutedEvents = new Set(['enforcer_pulse']);
+
   items = computed<FeedItem[]>(() => {
     const out: FeedItem[] = [];
     for (const e of this.events()) {
+      if (this.mutedEvents.has(e.event)) continue;
       out.push({
         ts: e.ts,
         kind: 'event',

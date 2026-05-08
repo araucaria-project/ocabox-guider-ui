@@ -124,6 +124,12 @@ export class AppComponent implements OnInit {
    *  now (could share a service later if multiple dashboards). */
   pulseDurationMs = signal<number>(500);
 
+  /** Arrow-key step size for pixel-mode arrows. Independent of pulse-pad
+   *  px input so the keyboard can have its own preferred step. Number-keys
+   *  1-4 still rebind ms-mode duration, but most operators will live in px
+   *  mode after we made it default. */
+  arrowStepPx = signal<number>(30);
+
   readonly shortcuts: { key: string; desc: string }[] = [
     { key: '?',         desc: 'toggle this panel' },
     { key: '↑ ↓ ← →',  desc: 'pulse N / S / W / E (current duration)' },
@@ -186,17 +192,22 @@ export class AppComponent implements OnInit {
       case 'Escape':
         this.shortcutsOpen.set(false);
         return;
+      // Arrow keys move the star in screen-axis direction. Default
+      // behaviour uses pixel-mode (server inverts the calibrated
+      // Jacobian) — same intuition regardless of per-camera transpose.
+      // Step size from the px-pad signal so changing it in the UI
+      // also changes the keyboard step.
       case 'ArrowUp':
-        dashboard?.manualPulse({ direction: 0, duration_ms: this.pulseDurationMs() });
+        dashboard?.manualPulsePx({ dx_px: 0, dy_px: -this.arrowStepPx() });
         ev.preventDefault(); return;
       case 'ArrowDown':
-        dashboard?.manualPulse({ direction: 1, duration_ms: this.pulseDurationMs() });
+        dashboard?.manualPulsePx({ dx_px: 0, dy_px: this.arrowStepPx() });
         ev.preventDefault(); return;
       case 'ArrowRight':
-        dashboard?.manualPulse({ direction: 2, duration_ms: this.pulseDurationMs() });
+        dashboard?.manualPulsePx({ dx_px: this.arrowStepPx(), dy_px: 0 });
         ev.preventDefault(); return;
       case 'ArrowLeft':
-        dashboard?.manualPulse({ direction: 3, duration_ms: this.pulseDurationMs() });
+        dashboard?.manualPulsePx({ dx_px: -this.arrowStepPx(), dy_px: 0 });
         ev.preventDefault(); return;
       case '1': this.pulseDurationMs.set(200); return;
       case '2': this.pulseDurationMs.set(500); return;

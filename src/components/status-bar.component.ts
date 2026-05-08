@@ -28,6 +28,12 @@ import { GuiderInfo, PipelineState } from '../services/guider.store';
       @if (state()?.acquired_pos; as p) {
         <span>star ({{ p[0] | number:'1.2-2' }}, {{ p[1] | number:'1.2-2' }})</span>
       }
+      @if (state()?.guide_anchor; as a) {
+        <span class="text-amber-300/80"
+              title="guide_anchor — the position the controller is currently pulling the star toward">
+          anchor ({{ a[0] | number:'1.2-2' }}, {{ a[1] | number:'1.2-2' }})
+        </span>
+      }
       @if (state()?.central_point; as c) {
         <span>reticle ({{ c[0] | number:'1.2-2' }}, {{ c[1] | number:'1.2-2' }})</span>
       }

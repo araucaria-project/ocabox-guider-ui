@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { DriftPoint } from '../services/guider.store';
+import { DriftPoint, InterventionMarker } from '../services/guider.store';
 
 /**
  * Rolling drift-error chart. Two lines (image-X red, image-Y blue) on a
@@ -46,6 +46,30 @@ import { DriftPoint } from '../services/guider.store';
           stroke-width="1"
         />
 
+        <!-- Mode-transition vertical separators — emerald for
+             monitoring → guiding, amber for the reverse. Drawn under
+             the data lines so the trace is on top. -->
+        @for (m of modeMarkers(); track m.t) {
+          <line [attr.x1]="m.x" [attr.x2]="m.x"
+                [attr.y1]="margin.top" [attr.y2]="H - margin.bottom"
+                [attr.stroke]="m.color" stroke-width="1" stroke-dasharray="3 2"/>
+          <text [attr.x]="m.x + 2" [attr.y]="margin.top + 9"
+                font-size="9" font-family="ui-monospace, monospace"
+                [attr.fill]="m.color">{{ m.label }}</text>
+        }
+
+        <!-- Pulse ticks — small vertical bars from the centre line,
+             height proportional to total pulse magnitude. Auto = grey
+             (so it doesn't fight the X/Y trace colours), manual =
+             amber (operator-action emphasis). Low alpha keeps them
+             unobtrusive — visible at a glance but the drift trace
+             reads first. -->
+        @for (p of pulseMarkers(); track p.t) {
+          <line [attr.x1]="p.x" [attr.x2]="p.x"
+                [attr.y1]="zeroY() - p.h" [attr.y2]="zeroY() + p.h"
+                [attr.stroke]="p.color" stroke-width="1" [attr.stroke-opacity]="p.alpha"/>
+        }
+
         @if (xPath(); as p) {
           <path [attr.d]="p" fill="none" stroke="rgb(244, 63, 94)" stroke-width="1.5"/>
         }
@@ -80,7 +104,9 @@ import { DriftPoint } from '../services/guider.store';
         }
       </svg>
 
-      <!-- Legend overlay -->
+      <!-- Legend overlay — minimal: only the two trace colours. Pulse
+           ticks + mode markers are described in the keyboard-help (?)
+           dialog so the chart stays readable. -->
       <div class="absolute top-1 right-2 flex gap-3 text-[10px] font-mono pointer-events-none">
         <span class="text-rose-400">━ X dx</span>
         <span class="text-sky-400">━ Y dy</span>
@@ -92,6 +118,9 @@ import { DriftPoint } from '../services/guider.store';
 export class DriftChartComponent {
   /** Drift points for the active pipeline (rolling buffer from the store). */
   points = input.required<DriftPoint[]>();
+  /** Intervention markers — mode flips and pulses, rendered as
+   *  vertical annotations on the chart. Optional; default empty. */
+  markers = input<InterventionMarker[]>([]);
   /** Window length in seconds; older samples are not drawn. */
   windowSeconds = input<number>(300);
 
@@ -144,6 +173,62 @@ export class DriftChartComponent {
 
   xPath = computed(() => this.buildPath('dx'));
   yPath = computed(() => this.buildPath('dy'));
+
+  /** Mode-change marker positions. Newest entries to the right —
+   *  same mapping as ``buildPath`` so they line up with the trace. */
+  modeMarkers = computed(() => {
+    const now = Date.now();
+    const win = this.windowSeconds() * 1000;
+    const usableW = this.W - this.margin.left - this.margin.right;
+    const out: { t: number; x: number; color: string; label: string }[] = [];
+    for (const m of this.markers()) {
+      if (m.kind !== 'mode' || !m.mode) continue;
+      const ageMs = now - m.t;
+      if (ageMs > win || ageMs < 0) continue;
+      const x = this.margin.left + usableW * (1 - ageMs / win);
+      const isGuidingOn = m.mode.to === 'guiding';
+      out.push({
+        t: m.t, x,
+        color: isGuidingOn ? 'rgb(52, 211, 153)' : 'rgb(251, 191, 36)',
+        label: m.mode.to.slice(0, 3),
+      });
+    }
+    return out;
+  });
+
+  /** Pulse marker positions + visual heights. Magnitude → bar half-height
+   *  scaled relative to maximum recent pulse so the chart shows
+   *  *relative* intensity (saturated 1500ms-cap pulses don't dwarf
+   *  small corrections; both fit within the chart vertically). */
+  pulseMarkers = computed(() => {
+    const now = Date.now();
+    const win = this.windowSeconds() * 1000;
+    const usableW = this.W - this.margin.left - this.margin.right;
+    const halfH = (this.H - this.margin.top - this.margin.bottom) / 2;
+    // Scale: pulses range 0–1500ms typically; map to 0.2..0.95 of half-height
+    // so even tiny corrections produce a visible tick.
+    const pulses = this.markers().filter(m => m.kind === 'pulse' && m.pulse);
+    const maxMs = pulses.reduce((a, m) => Math.max(a, m.pulse?.total_ms ?? 0), 0) || 100;
+    const out: { t: number; x: number; h: number; color: string; alpha: number }[] = [];
+    for (const m of pulses) {
+      const ageMs = now - m.t;
+      if (ageMs > win || ageMs < 0) continue;
+      const x = this.margin.left + usableW * (1 - ageMs / win);
+      const ms = m.pulse!.total_ms;
+      const h = halfH * (0.2 + 0.75 * Math.min(1, ms / maxMs));
+      // Auto pulses are common (every 1-2s during active guiding) so
+      // they need to fade into the background — operator wants to see
+      // the drift trace first, ticks as cadence indicator. Manual
+      // commands are rare events and stay sharper.
+      const auto = m.pulse!.source === 'auto';
+      const color = auto
+        ? 'rgb(161, 161, 170)'  // zinc-400 (neutral grey)
+        : 'rgb(251, 191, 36)';  // amber-400 (operator action)
+      const alpha = auto ? 0.55 : 0.8;
+      out.push({ t: m.t, x, h, color, alpha });
+    }
+    return out;
+  });
 
   private buildPath(axis: 'dx' | 'dy'): string | null {
     const pts = this.points();

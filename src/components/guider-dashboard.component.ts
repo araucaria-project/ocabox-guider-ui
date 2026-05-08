@@ -102,7 +102,10 @@ const RETICLE_KEY = 'ocabox-guider.reticle';
           </div>
 
           <div class="grid grid-cols-[1fr_auto] gap-2 items-start">
-            <app-drift-chart [points]="driftPoints()"></app-drift-chart>
+            <app-drift-chart
+              [points]="driftPoints()"
+              [markers]="driftMarkers()"
+            ></app-drift-chart>
             <app-scatter-plot [points]="driftPoints()"></app-scatter-plot>
           </div>
 
@@ -139,7 +142,12 @@ const RETICLE_KEY = 'ocabox-guider.reticle';
               {{ state()?.last_correction_dy_px ?? '—' }}
             </div>
             <div class="text-zinc-500">acquired_adu</div>
-            <div>{{ state()?.acquired_adu ?? '—' }}</div>
+            <div [class.text-rose-400]="aduSaturated()"
+                 [class.font-semibold]="aduSaturated()"
+                 [title]="aduSaturated() ? 'SATURATED — peak hits sensor clip; sub-pixel centroid degrades. Lower exp_time.' : ''">
+              {{ state()?.acquired_adu ?? '—' }}
+              @if (aduSaturated()) { <span class="text-[10px]">⚠ SAT</span> }
+            </div>
           </div>
 
           <div class="pt-1 border-t border-zinc-800">
@@ -161,11 +169,12 @@ const RETICLE_KEY = 'ocabox-guider.reticle';
               (applyPatch)="applyCameraPatch($event)"
             ></app-camera-panel>
           </div>
-          <div>
+          <div class="pt-3 border-t border-zinc-800">
             <div class="text-[11px] uppercase tracking-wider text-zinc-500 mb-2">manual pulse</div>
             <app-pulse-pad
               #pad
               (pulse)="manualPulse($event)"
+              (pulsePx)="manualPulsePx($event)"
             ></app-pulse-pad>
           </div>
           <div>
@@ -225,6 +234,27 @@ export class GuiderDashboardComponent {
     const g = this.guider();
     if (!g.pipelines.length) return [];
     return this.store.drift().get(`${g.instance}::${g.pipelines[0].id}`) ?? [];
+  });
+
+  driftMarkers = computed(() => {
+    const g = this.guider();
+    if (!g.pipelines.length) return [];
+    return this.store.interventions().get(`${g.instance}::${g.pipelines[0].id}`) ?? [];
+  });
+
+  /** Saturation alarm — true when the locked star's peak ADU hits the
+   *  configured saturation threshold. The blob centroid loses
+   *  sub-pixel precision (the saturation plateau collapses to its
+   *  geometric centre = integer pixel) so the operator should see a
+   *  visible warning to lower exp_time. Threshold pulled from
+   *  ``method_params.saturation_adu`` if the server publishes it,
+   *  otherwise a conservative 62000 fallback for typical 16-bit
+   *  cameras. */
+  aduSaturated = computed(() => {
+    const s = this.state();
+    if (!s?.acquired_adu) return false;
+    const sat = (s as any)?.method_params?.saturation_adu ?? 62000;
+    return s.acquired_adu >= sat;
   });
 
   toggleFrozen(): void {
@@ -354,6 +384,18 @@ export class GuiderDashboardComponent {
       .then((res: any) => {
         const ok = res?.status === 'ok';
         this.pulsePad()?.reportRpc(ok, ok ? `${label} ok` : `${label} failed: ${res?.error ?? '?'}`);
+      })
+      .catch(e => this.pulsePad()?.reportRpc(false, `${label} error: ${(e as Error).message ?? e}`));
+  }
+
+  manualPulsePx(p: { dx_px: number; dy_px: number }): void {
+    const label = `pulse(Δ=${p.dx_px > 0 ? '+' : ''}${p.dx_px},${p.dy_px > 0 ? '+' : ''}${p.dy_px} px)`;
+    this.store.pulsePixels(this.guider().instance, this.firstPipelineId(), p.dx_px, p.dy_px)
+      .then((res: any) => {
+        const ok = res?.status === 'ok';
+        const inner = res?.result ?? res;
+        const tag = inner?.n_clipped || inner?.e_clipped ? ' (clipped)' : '';
+        this.pulsePad()?.reportRpc(ok, ok ? `${label} ok${tag}` : `${label} failed: ${inner?.error ?? '?'}`);
       })
       .catch(e => this.pulsePad()?.reportRpc(false, `${label} error: ${(e as Error).message ?? e}`));
   }
