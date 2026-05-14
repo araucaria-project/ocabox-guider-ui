@@ -105,6 +105,24 @@ const WHEEL_FACTOR = 1.2;
           </div>
         }
 
+        <!-- Phase pill in top-right. Suppressed in TRACKING (normal
+             operation — overlay clutter to display the obvious).
+             Visible during pulse lifecycle so the operator sees which
+             stage the pipeline is in: PULSING (mount moving),
+             SETTLING (damping), ACQUIRING (looking for re-lock). -->
+        @if (phaseLabel(); as p) {
+          <div class="absolute top-1 right-1 px-2 py-0.5 text-[10px]
+                      font-mono uppercase tracking-wider rounded
+                      pointer-events-none"
+               [class.bg-amber-500]="p === 'PULSING'"
+               [class.bg-amber-600]="p === 'SETTLING'"
+               [class.bg-emerald-600]="p === 'ACQUIRING'"
+               [class.text-zinc-900]="p === 'PULSING'"
+               [class.text-zinc-50]="p === 'SETTLING' || p === 'ACQUIRING'">
+            {{ p }}
+          </div>
+        }
+
         <svg
           class="absolute inset-0 w-full h-full"
           [attr.viewBox]="'0 0 ' + sensorWidth() + ' ' + sensorHeight()"
@@ -230,11 +248,20 @@ const WHEEL_FACTOR = 1.2;
               />
             }
 
-            <!-- Search-region box (narrow re-acquisition window) on acquired_pos. -->
-            @if (s.acquired && s.acquired_pos) {
+            <!-- Search-region box. In TRACKING (no pulse) it sits at
+                 acquired_pos for narrow re-acquisition. During
+                 ACQUIRING (post-settle, pulse complete) it moves to
+                 active_pulse.predicted_pos — the operator sees the
+                 box jump to where the solver is *now* looking for the
+                 star, not where it was when the pulse fired. Skipped
+                 entirely during IN_FLIGHT / SETTLING — the trajectory
+                 arrow below is the right visualisation then. -->
+            @if (s.acquired && s.acquired_pos
+                 && s.frame_phase !== 'in_flight'
+                 && s.frame_phase !== 'settling') {
               <rect
-                [attr.x]="s.acquired_pos[0] - s.search_reg_px / 2"
-                [attr.y]="s.acquired_pos[1] - s.search_reg_px / 2"
+                [attr.x]="(s.active_pulse?.predicted_pos?.[0] ?? s.acquired_pos[0]) - s.search_reg_px / 2"
+                [attr.y]="(s.active_pulse?.predicted_pos?.[1] ?? s.acquired_pos[1]) - s.search_reg_px / 2"
                 [attr.width]="s.search_reg_px"
                 [attr.height]="s.search_reg_px"
                 fill="none"
@@ -244,6 +271,44 @@ const WHEEL_FACTOR = 1.2;
                 stroke-dasharray="3,3"
                 pointer-events="none"
               />
+            }
+
+            <!-- Trajectory arrow during IN_FLIGHT and SETTLING. The
+                 operator sees an explicit "star is moving from here to
+                 here" line so the smeared frames don't read as
+                 "guider broke". Stroke amber to distinguish from the
+                 stable green/cyan overlays. -->
+            @if (s.active_pulse
+                 && (s.frame_phase === 'in_flight' || s.frame_phase === 'settling')) {
+              <g pointer-events="none">
+                <line
+                  [attr.x1]="s.active_pulse.src_pos[0]"
+                  [attr.y1]="s.active_pulse.src_pos[1]"
+                  [attr.x2]="s.active_pulse.predicted_pos[0]"
+                  [attr.y2]="s.active_pulse.predicted_pos[1]"
+                  stroke="rgba(251, 191, 36, 0.85)"
+                  [attr.stroke-width]="overlayStrokePx() * 1.4"
+                  vector-effect="non-scaling-stroke"
+                />
+                <!-- Endpoint markers — small circle at source, larger
+                     amber ring at predicted target. -->
+                <circle
+                  [attr.cx]="s.active_pulse.src_pos[0]"
+                  [attr.cy]="s.active_pulse.src_pos[1]"
+                  [attr.r]="overlayMarkerPx() * 0.35"
+                  fill="rgba(251, 191, 36, 0.6)"
+                  stroke="none"
+                />
+                <circle
+                  [attr.cx]="s.active_pulse.predicted_pos[0]"
+                  [attr.cy]="s.active_pulse.predicted_pos[1]"
+                  [attr.r]="overlayMarkerPx() * 0.55"
+                  fill="none"
+                  stroke="rgba(251, 191, 36, 0.85)"
+                  [attr.stroke-width]="overlayStrokePx() * 1.2"
+                  vector-effect="non-scaling-stroke"
+                />
+              </g>
             }
 
             <!-- Scale bar: 100 px reference at the bottom-left. -->
@@ -488,6 +553,21 @@ export class FrameViewComponent {
       seq: Number(note.sequence ?? 0),
       expStr: formatDuration(expMs),
     };
+  });
+
+  /** Human-readable phase pill label. Returns null in TRACKING so the
+   *  overlay disappears in normal operation. PULSING covers the
+   *  mount-in-motion window; SETTLING the damping window; ACQUIRING
+   *  the post-settle re-lock window. */
+  phaseLabel = computed<'PULSING' | 'SETTLING' | 'ACQUIRING' | null>(() => {
+    const s = this.state();
+    if (!s) return null;
+    switch (s.frame_phase) {
+      case 'in_flight': return 'PULSING';
+      case 'settling': return 'SETTLING';
+      case 'acquiring': return 'ACQUIRING';
+      default: return null;
+    }
   });
 
   /** Image lag — how far behind the displayed frame is, in both

@@ -79,6 +79,29 @@ export interface PipelineState {
   fwhm_recent: number | null;
   last_correction_dx_px: number | null;
   last_correction_dy_px: number | null;
+  /** Phase classification of the most recently processed frame. See
+   *  server-side ``FramePhase`` enum: ``tracking`` (no pulse) /
+   *  ``in_flight`` (mount moving) / ``settling`` (damping) /
+   *  ``acquiring`` (post-settle, looking for new lock). Drives the
+   *  frame-view overlay state: in-flight/settling → trajectory arrow,
+   *  acquiring → predicted-position search circle. */
+  frame_phase: 'tracking' | 'in_flight' | 'settling' | 'acquiring' | null;
+  /** First-class record of the most recently issued pulse, populated
+   *  while it's in flight (set by Enforcer at issue time, cleared by
+   *  Controller on successful re-acquire). UI reads ``src_pos`` and
+   *  ``predicted_pos`` to draw the expected motion. ``null`` when no
+   *  pulse is in flight. */
+  active_pulse: {
+    issued_utc: number[];
+    motion_end_utc: number[];
+    settled_utc: number[];
+    src_pos: [number, number];
+    predicted_pos: [number, number];
+    pulse_t_n_ms: number;
+    pulse_t_e_ms: number;
+    correction_dx_px: number;
+    correction_dy_px: number;
+  } | null;
   version: number;
   [k: string]: unknown;
 }
