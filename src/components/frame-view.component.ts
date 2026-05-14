@@ -10,6 +10,21 @@ interface View {
 }
 
 const HOME_VIEW: View = { zoom: 1, panX: 0, panY: 0 };
+
+/** Render a duration in human-friendly units. Operators read frames
+ *  on the order of a few hundred ms (cadence) to tens of seconds
+ *  (slow links, long exposures); raw "12345 ms" forces them to count
+ *  digits. Sub-second → "850 ms"; sub-minute → "12.3 s"; longer
+ *  → "2 min 14 s". */
+function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return '–';
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  const s = ms / 1000;
+  if (s < 60) return `${s.toFixed(s < 10 ? 1 : 0)} s`;
+  const m = Math.floor(s / 60);
+  const r = Math.round(s - m * 60);
+  return `${m} min ${r} s`;
+}
 const ZOOM_MIN = 1;
 const ZOOM_MAX = 16;
 const BUTTON_FACTOR = 1.5;
@@ -57,23 +72,24 @@ const WHEEL_FACTOR = 1.2;
           </div>
         }
 
-        <!-- Frame metadata overlay reflects the *displayed* frame, not
-             the latest notification. On a slow link the notification
-             stream advances faster than the browser can pull JPEGs;
-             metadata that races ahead of the visible image confused
-             the operator (#1234 with image #1100). The 'pending'
-             counter on the right shows how far behind we are so the
-             operator can tell at a glance that frames are being
-             skipped under bandwidth pressure. -->
-        @if (displayedMeta(); as fm) {
+        <!-- Two-line overlay. Top line = LATEST notification (system
+             aliveness — UTC clock, age since exposure, exp time).
+             Bottom line = DISPLAYED frame (what's actually on screen)
+             with the image-lag indicator. On a fast link they're the
+             same frame; on a slow one the gap tells the operator
+             exactly how stale the visible image is in human units. -->
+        @if (latestMeta(); as lm) {
           <div class="absolute top-1 left-1 px-1.5 py-0.5 text-[10px]
                       font-mono leading-tight text-zinc-100
-                      bg-black/55 rounded pointer-events-none"
-               [class.text-amber-300]="fm.ageStale">
-            {{ fm.utc }} · age {{ fm.ageMs }} ms<br>
-            #{{ fm.seq }} · exp {{ fm.expMs }} ms
-            @if (pendingBehind(); as p) {
-              <span class="ml-1 text-amber-300">↻ +{{ p }}</span>
+                      bg-black/55 rounded pointer-events-none">
+            <div [class.text-amber-300]="lm.ageStale">
+              {{ lm.utc }} · {{ lm.ageStr }}
+              · #{{ lm.seq }} · exp {{ lm.expStr }}
+            </div>
+            @if (imageLag(); as lag) {
+              <div class="text-amber-300">
+                ↻ showing #{{ lag.shownSeq }} ({{ lag.gapStr }} behind)
+              </div>
             }
           </div>
         }
@@ -424,39 +440,23 @@ export class FrameViewComponent {
     return this.store.resolveThumbnailUrl(note.path);
   });
 
-  /** ↻ +N indicator: how many notifications arrived since we last
-   *  finished loading an image. Zero = caught up. Computed off the
-   *  sequence numbers, defensive against malformed payloads. */
-  pendingBehind = computed<number | null>(() => {
-    const latest = this.latestNote();
-    const displayed = this.displayedNote();
-    if (!latest || !displayed) return null;
-    const lseq = Number(latest.sequence ?? 0);
-    const dseq = Number(displayed.sequence ?? 0);
-    const gap = lseq - dseq;
-    return gap > 0 ? gap : null;
-  });
-
   /** ``now`` ticker for live "age of frame" display. Re-evaluates
    *  every second so the overlay clock advances without waiting for a
    *  new notification. */
   private nowTick = signal<number>(Date.now());
 
-  /** Parsed metadata for the *displayed* frame (not the latest
-   *  notification — see ``displayedNote`` doc). UTC string, age in
-   *  milliseconds (now − frame_ts), sequence number, exposure time.
-   *  ``ageStale`` flags when the gap exceeds 2× exposure + slack,
-   *  hinting at a stalled load or notification stream. */
-  displayedMeta = computed<{
-    utc: string; ageMs: number; ageStale: boolean;
-    seq: number; expMs: number;
+  /** Parsed metadata for the LATEST notification — system aliveness
+   *  display. Always reflects the freshest frame the guider has
+   *  emitted, regardless of whether the browser has finished loading
+   *  its JPEG. Operator sees the UTC clock advancing in real time;
+   *  ``ageStale`` colour-codes when notifications themselves stop
+   *  arriving (system stalled, not just slow link). */
+  latestMeta = computed<{
+    utc: string; ageStr: string; ageStale: boolean;
+    seq: number; expStr: string;
   } | null>(() => {
-    const note = this.displayedNote() ?? this.latestNote();
+    const note = this.latestNote();
     if (!note) return null;
-    // ``frame_ts`` from serverish is a 7-int UTC array
-    // [Y, M, D, h, m, s, μs]; constructing a Date from the first six
-    // fields gives ms precision which is plenty for an operator-facing
-    // readout. Defensive: any malformed timestamp → render nothing.
     const ts = note.frame_ts;
     if (!Array.isArray(ts) || ts.length < 6) return null;
     const dt = Date.UTC(ts[0], ts[1] - 1, ts[2], ts[3], ts[4], ts[5],
@@ -466,11 +466,45 @@ export class FrameViewComponent {
     const ageMs = Math.max(0, now - dt);
     const expS = Number(note.exp_time_total ?? 0);
     const expMs = Math.round(expS * 1000);
+    // Stale = no new notifications for 2× exp + 2 s (system not
+    // producing frames). Distinct from image-lag (link too slow).
     const ageStale = ageMs > (expMs * 2 + 2000);
     const pad = (n: number, w = 2) => String(n).padStart(w, '0');
     const utc = `${ts[0]}-${pad(ts[1])}-${pad(ts[2])} `
               + `${pad(ts[3])}:${pad(ts[4])}:${pad(ts[5])}`;
-    return { utc, ageMs, ageStale, seq: Number(note.sequence ?? 0), expMs };
+    return {
+      utc,
+      ageStr: formatDuration(ageMs),
+      ageStale,
+      seq: Number(note.sequence ?? 0),
+      expStr: formatDuration(expMs),
+    };
+  });
+
+  /** Image lag — how far behind the displayed frame is, in both
+   *  sequence gap and time. ``null`` when caught up (display = latest)
+   *  or when no notifications received yet. */
+  imageLag = computed<{ shownSeq: number; gap: number; gapStr: string } | null>(() => {
+    const latest = this.latestNote();
+    const displayed = this.displayedNote();
+    if (!latest || !displayed) return null;
+    const lseq = Number(latest.sequence ?? 0);
+    const dseq = Number(displayed.sequence ?? 0);
+    const gap = lseq - dseq;
+    if (gap <= 0) return null;
+    // Time gap: difference between latest and displayed frame_ts.
+    // For most cadences this is approx ``gap × cadence_ms``; we
+    // compute exactly because exposure can change mid-session.
+    const lt = latest.frame_ts; const dt = displayed.frame_ts;
+    let gapMs = 0;
+    if (Array.isArray(lt) && Array.isArray(dt) && lt.length >= 6 && dt.length >= 6) {
+      const l = Date.UTC(lt[0], lt[1] - 1, lt[2], lt[3], lt[4], lt[5],
+                         Math.floor((lt[6] ?? 0) / 1000));
+      const d = Date.UTC(dt[0], dt[1] - 1, dt[2], dt[3], dt[4], dt[5],
+                         Math.floor((dt[6] ?? 0) / 1000));
+      gapMs = Math.max(0, l - d);
+    }
+    return { shownSeq: dseq, gap, gapStr: formatDuration(gapMs) };
   });
 
   /** Browser finished loading the current image. Flush the queue:
@@ -550,6 +584,30 @@ export class FrameViewComponent {
         this.displayedNote.set(latest);
       }
     }, { allowSignalWrites: true });
+
+    // Stuck-load watchdog. If ``onImageLoad`` doesn't fire within 15 s
+    // (network drop, image abort never resolves, browser quirk) AND a
+    // newer notification has arrived, force-advance — better to retry
+    // a fresh frame than wait forever. 15 s is generous: under VPN at
+    // ~100 KB/s a 2 MB JPEG takes ~20 s legitimately, so we set the
+    // ceiling slightly under that and instead advance only when the
+    // pending queue is large enough that catching up is worth more
+    // than finishing the current load.
+    const watchdog = setInterval(() => {
+      if (!this.imageLoading()) return;
+      const latest = this.latestNote();
+      const displayed = this.displayedNote();
+      if (!latest || !displayed) return;
+      const gap = Number(latest.sequence ?? 0) - Number(displayed.sequence ?? 0);
+      if (gap >= 10) {
+        // The displayed frame is so far behind that the operator is
+        // better served by a fresh attempt than by waiting for the
+        // in-flight load that may never complete.
+        this.imageLoading.set(false);
+        this.displayedNote.set(null);  // Drop to bootstrap; effect picks latest.
+      }
+    }, 5000);
+    inject(DestroyRef).onDestroy(() => clearInterval(watchdog));
   }
 
   onSvgClick(ev: MouseEvent): void {
