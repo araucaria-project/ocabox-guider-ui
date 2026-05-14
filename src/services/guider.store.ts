@@ -444,24 +444,26 @@ export class GuiderStore {
     if (!ts) return;
     const baseUrl = ts['base_url'];
     if (typeof baseUrl !== 'string' || !baseUrl.startsWith('http')) return;
-    // Auto-fill only when localStorage is empty (operator never set
-    // anything) or matches an obvious dev default. Don't clobber
-    // operator overrides — they may have a reason (proxied URL, port
-    // forward, NFS-attached different hostname).
-    const currentBase = this.thumbnailHttpBase().trim();
-    const baseIsDefault = currentBase === '' || currentBase === 'http://localhost:8080';
-    if (baseIsDefault) {
+    // Discovery is authoritative. localStorage is a cache for bootstrap
+    // (so the first paint after page load isn't blank while we wait for
+    // NATS to deliver the first status message) — not an override
+    // store. Earlier this logic preserved any non-default value as an
+    // "operator override"; in practice that meant: type a wrong URL
+    // once → stuck with it forever, even after the server changes
+    // hostname/port and discovery announces the new one. Operators with
+    // genuine override needs (proxy, tunnel) can use the Connection
+    // dialog; future work will add a pin toggle for "freeze this value".
+    if (baseUrl !== this.thumbnailHttpBase()) {
       this.setThumbnailHttpBase(baseUrl);
     }
-    // Auto-fill the filesystem prefix the same way: if the published
-    // base URL has a non-root path component (e.g. ``…:8090/thumbs``),
-    // find the root whose URL prefix matches and use its filesystem
-    // ``directory`` as the strip prefix. The guider publishes absolute
-    // ``path`` values in its frame.thumbnail.ready notifications; we
-    // strip this prefix to map them onto fetchable URLs.
-    // Two roots are typical: ``/thumbs → <thumbs-dir>`` (this one) and
-    // ``/ → <ui-dist>`` (SPA host). We pick the thumbnails one by
-    // matching base-URL path against the root's ``prefix``.
+    // Filesystem prefix — find the root whose URL prefix matches the
+    // base_url's path component (e.g. base_url ``…/thumbs`` ↔ root
+    // ``prefix: /thumbs``). The guider publishes absolute ``path``
+    // values in its frame.thumbnail.ready notifications; we strip this
+    // prefix to map them onto fetchable URLs.
+    // Two roots are typical: ``/thumbs → <thumbs-dir>`` and ``/ →
+    // <ui-dist>`` (SPA host). We pick the thumbnails one by matching
+    // base-URL path against the root's ``prefix``.
     const rootsRaw = ts['roots'];
     if (!Array.isArray(rootsRaw) || rootsRaw.length === 0) return;
     const baseUrlPath = (() => {
@@ -484,9 +486,7 @@ export class GuiderStore {
     if (!matched || typeof matched.directory !== 'string') return;
     const directory = (matched.directory as string).replace(/\/+$/, '');
     if (!directory) return;
-    const currentPrefix = this.thumbnailPathPrefix().trim();
-    const prefixIsDefault = currentPrefix === '' || currentPrefix === '/tmp/guider_thumbs';
-    if (prefixIsDefault) {
+    if (directory !== this.thumbnailPathPrefix()) {
       this.setThumbnailPathPrefix(directory);
     }
   }

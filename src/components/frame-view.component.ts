@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, ElementRef, afterNextRender, computed, inject, input, output, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, afterNextRender, computed, inject, input, output, signal, viewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { GuiderStore, PipelineState } from '../services/guider.store';
 import { ReticleComponent, ReticleStyle } from './reticle.component';
@@ -52,6 +52,24 @@ const WHEEL_FACTOR = 1.2;
         } @else {
           <div class="absolute inset-0 grid place-items-center text-xs text-zinc-600">
             waiting for first frame…
+          </div>
+        }
+
+        <!-- Frame metadata overlay: UTC of mid-exposure + age, sequence
+             number, exposure time. The operator can tell instantly if
+             the displayed image is fresh (age < a few seconds) or
+             stuck (age growing without bound = no new notifications
+             arriving). Kept in the panned/zoomed wrapper so it stays
+             pinned to the image's top-left even when the view is
+             dragged around. Rendered in monospace, semi-transparent
+             dark backdrop so it's readable against bright frames. -->
+        @if (frameMeta(); as fm) {
+          <div class="absolute top-1 left-1 px-1.5 py-0.5 text-[10px]
+                      font-mono leading-tight text-zinc-100
+                      bg-black/55 rounded pointer-events-none"
+               [class.text-amber-300]="fm.ageStale">
+            {{ fm.utc }} · age {{ fm.ageMs }} ms<br>
+            #{{ fm.seq }} · exp {{ fm.expMs }} ms
           </div>
         }
 
@@ -375,6 +393,47 @@ export class FrameViewComponent {
     return this.store.resolveThumbnailUrl(note.path);
   });
 
+  /** ``now`` ticker for live "age of frame" display. Re-evaluates
+   *  every second so the overlay clock advances without waiting for a
+   *  new notification. Wrapped in setInterval at construction; the
+   *  signal change drives OnPush change detection automatically.
+   *  Cheap — one Date.now() per tick. */
+  private nowTick = signal<number>(Date.now());
+
+  /** Parsed metadata for the currently displayed frame: UTC string,
+   *  age in milliseconds (now − frame_ts), sequence number, exposure
+   *  time. ``ageStale`` flags when the gap exceeds 2× exposure +
+   *  generous slack, hinting at a stalled notification stream. */
+  frameMeta = computed<{
+    utc: string; ageMs: number; ageStale: boolean;
+    seq: number; expMs: number;
+  } | null>(() => {
+    const note = this.store.thumbnails().get(this.instance());
+    if (!note) return null;
+    // ``frame_ts`` from serverish is a 7-int UTC array
+    // [Y, M, D, h, m, s, μs]; constructing a Date from the first six
+    // fields gives ms precision which is plenty for an operator-facing
+    // readout. Defensive: any malformed timestamp → render nothing.
+    const ts = note.frame_ts;
+    if (!Array.isArray(ts) || ts.length < 6) return null;
+    const dt = Date.UTC(ts[0], ts[1] - 1, ts[2], ts[3], ts[4], ts[5],
+                        Math.floor((ts[6] ?? 0) / 1000));
+    if (Number.isNaN(dt)) return null;
+    const now = this.nowTick();
+    const ageMs = Math.max(0, now - dt);
+    const expS = Number(note.exp_time_total ?? 0);
+    const expMs = Math.round(expS * 1000);
+    // Stale threshold: 2× exposure plus 2 s slack for the
+    // readout/network round-trip. Below the threshold the overlay
+    // stays neutral; above it goes amber so the operator notices
+    // before the image has visibly stopped changing.
+    const ageStale = ageMs > (expMs * 2 + 2000);
+    const pad = (n: number, w = 2) => String(n).padStart(w, '0');
+    const utc = `${ts[0]}-${pad(ts[1])}-${pad(ts[2])} `
+              + `${pad(ts[3])}:${pad(ts[4])}:${pad(ts[5])}`;
+    return { utc, ageMs, ageStale, seq: Number(note.sequence ?? 0), expMs };
+  });
+
   transformStyle = computed(() => {
     const v = this.view();
     return `translate(${v.panX}px, ${v.panY}px) scale(${v.zoom})`;
@@ -411,6 +470,12 @@ export class FrameViewComponent {
       const el = this.hostRef.nativeElement as HTMLElement;
       el.addEventListener('wheel', (ev) => this.onWheel(ev as WheelEvent), { passive: false });
     });
+    // Live age ticker — drives the frame-meta overlay's age readout
+    // without waiting for a new thumbnail notification. 1 Hz is plenty
+    // (operator's eye doesn't resolve faster than that for a ms-level
+    // counter) and stays well under any plausible polling concern.
+    const ticker = setInterval(() => this.nowTick.set(Date.now()), 1000);
+    inject(DestroyRef).onDestroy(() => clearInterval(ticker));
   }
 
   onSvgClick(ev: MouseEvent): void {
