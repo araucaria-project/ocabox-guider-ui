@@ -310,9 +310,16 @@ export class GuiderStore {
       rel = rel.slice(prefix.length);
     }
     if (!rel.startsWith('/')) rel = '/' + rel;
-    // Cache-bust on every notification — same filename gets reused for
-    // `latest.jpg` symlink, browser would otherwise show stale.
-    return `${base}${rel}?t=${Date.now()}`;
+    // No cache-busting query string: thumbnails are written to
+    // unique sequence-numbered paths (``00001058.jpg``), so every
+    // notification already produces a distinct URL. The old
+    // ``?t=Date.now()`` was for a ``latest.jpg`` symlink case that
+    // we don't actually subscribe to — and on slow links it *broke*
+    // display by chaining aborted fetches: each new notification
+    // changed the src and cancelled the in-progress load, leaving
+    // the displayed image frozen on the first frame that managed
+    // to complete.
+    return `${base}${rel}`;
   }
 
   /** RPC helpers — convenience over NatsService.rpcRequest. */

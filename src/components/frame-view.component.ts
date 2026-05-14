@@ -1,6 +1,6 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, afterNextRender, computed, inject, input, output, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, afterNextRender, computed, effect, inject, input, output, signal, viewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { GuiderStore, PipelineState } from '../services/guider.store';
+import { GuiderStore, PipelineState, ThumbnailNotification } from '../services/guider.store';
 import { ReticleComponent, ReticleStyle } from './reticle.component';
 
 interface View {
@@ -44,10 +44,12 @@ const WHEEL_FACTOR = 1.2;
         class="absolute inset-0 origin-top-left will-change-transform"
         [style.transform]="transformStyle()"
       >
-        @if (thumbnailUrl(); as url) {
+        @if (displayedUrl(); as url) {
           <img
             class="thumb-canvas absolute inset-0 w-full h-full object-contain"
             [src]="url"
+            (load)="onImageLoad()"
+            (error)="onImageError()"
             alt="latest guider frame">
         } @else {
           <div class="absolute inset-0 grid place-items-center text-xs text-zinc-600">
@@ -55,21 +57,24 @@ const WHEEL_FACTOR = 1.2;
           </div>
         }
 
-        <!-- Frame metadata overlay: UTC of mid-exposure + age, sequence
-             number, exposure time. The operator can tell instantly if
-             the displayed image is fresh (age < a few seconds) or
-             stuck (age growing without bound = no new notifications
-             arriving). Kept in the panned/zoomed wrapper so it stays
-             pinned to the image's top-left even when the view is
-             dragged around. Rendered in monospace, semi-transparent
-             dark backdrop so it's readable against bright frames. -->
-        @if (frameMeta(); as fm) {
+        <!-- Frame metadata overlay reflects the *displayed* frame, not
+             the latest notification. On a slow link the notification
+             stream advances faster than the browser can pull JPEGs;
+             metadata that races ahead of the visible image confused
+             the operator (#1234 with image #1100). The 'pending'
+             counter on the right shows how far behind we are so the
+             operator can tell at a glance that frames are being
+             skipped under bandwidth pressure. -->
+        @if (displayedMeta(); as fm) {
           <div class="absolute top-1 left-1 px-1.5 py-0.5 text-[10px]
                       font-mono leading-tight text-zinc-100
                       bg-black/55 rounded pointer-events-none"
                [class.text-amber-300]="fm.ageStale">
             {{ fm.utc }} · age {{ fm.ageMs }} ms<br>
             #{{ fm.seq }} · exp {{ fm.expMs }} ms
+            @if (pendingBehind(); as p) {
+              <span class="ml-1 text-amber-300">↻ +{{ p }}</span>
+            }
           </div>
         }
 
@@ -387,28 +392,66 @@ export class FrameViewComponent {
 
   private host = viewChild<ElementRef<HTMLElement>>('host');
 
-  thumbnailUrl = computed<string | null>(() => {
-    const note = this.store.thumbnails().get(this.instance());
-    if (!note) return null;
+  /** Load-serialising image swap. Slow links (VPN) can't pull a
+   *  notification's JPEG before the next one arrives. Naively binding
+   *  ``<img [src]>`` to the latest URL aborts the in-flight fetch
+   *  every time, so the browser never finishes any image and the
+   *  displayed frame freezes — while the metadata races ahead.
+   *
+   *  Pattern: keep two signals — ``displayedNote`` is what the user
+   *  actually sees; ``latestNote`` is the most recent notification.
+   *  When ``latestNote`` arrives we adopt it as ``displayedNote``
+   *  only if nothing is currently loading; otherwise we wait for the
+   *  ``(load)`` event to flush the queue. This gives natural
+   *  rate-limiting that matches the operator's actual bandwidth —
+   *  every frame visible was fully fetched. The ``↻ +N`` badge tells
+   *  them how far behind the display is. */
+  private displayedNote = signal<ThumbnailNotification | null>(null);
+  private latestNote = computed<ThumbnailNotification | null>(() =>
+    this.store.thumbnails().get(this.instance()) ?? null,
+  );
+  private imageLoading = signal<boolean>(false);
+
+  displayedUrl = computed<string | null>(() => {
+    const note = this.displayedNote();
+    if (!note) {
+      // Initial: nothing displayed yet — adopt the very first
+      // notification synchronously so the first frame appears
+      // without waiting for an onload that hasn't been bound yet.
+      const first = this.latestNote();
+      return first ? this.store.resolveThumbnailUrl(first.path) : null;
+    }
     return this.store.resolveThumbnailUrl(note.path);
+  });
+
+  /** ↻ +N indicator: how many notifications arrived since we last
+   *  finished loading an image. Zero = caught up. Computed off the
+   *  sequence numbers, defensive against malformed payloads. */
+  pendingBehind = computed<number | null>(() => {
+    const latest = this.latestNote();
+    const displayed = this.displayedNote();
+    if (!latest || !displayed) return null;
+    const lseq = Number(latest.sequence ?? 0);
+    const dseq = Number(displayed.sequence ?? 0);
+    const gap = lseq - dseq;
+    return gap > 0 ? gap : null;
   });
 
   /** ``now`` ticker for live "age of frame" display. Re-evaluates
    *  every second so the overlay clock advances without waiting for a
-   *  new notification. Wrapped in setInterval at construction; the
-   *  signal change drives OnPush change detection automatically.
-   *  Cheap — one Date.now() per tick. */
+   *  new notification. */
   private nowTick = signal<number>(Date.now());
 
-  /** Parsed metadata for the currently displayed frame: UTC string,
-   *  age in milliseconds (now − frame_ts), sequence number, exposure
-   *  time. ``ageStale`` flags when the gap exceeds 2× exposure +
-   *  generous slack, hinting at a stalled notification stream. */
-  frameMeta = computed<{
+  /** Parsed metadata for the *displayed* frame (not the latest
+   *  notification — see ``displayedNote`` doc). UTC string, age in
+   *  milliseconds (now − frame_ts), sequence number, exposure time.
+   *  ``ageStale`` flags when the gap exceeds 2× exposure + slack,
+   *  hinting at a stalled load or notification stream. */
+  displayedMeta = computed<{
     utc: string; ageMs: number; ageStale: boolean;
     seq: number; expMs: number;
   } | null>(() => {
-    const note = this.store.thumbnails().get(this.instance());
+    const note = this.displayedNote() ?? this.latestNote();
     if (!note) return null;
     // ``frame_ts`` from serverish is a 7-int UTC array
     // [Y, M, D, h, m, s, μs]; constructing a Date from the first six
@@ -423,16 +466,33 @@ export class FrameViewComponent {
     const ageMs = Math.max(0, now - dt);
     const expS = Number(note.exp_time_total ?? 0);
     const expMs = Math.round(expS * 1000);
-    // Stale threshold: 2× exposure plus 2 s slack for the
-    // readout/network round-trip. Below the threshold the overlay
-    // stays neutral; above it goes amber so the operator notices
-    // before the image has visibly stopped changing.
     const ageStale = ageMs > (expMs * 2 + 2000);
     const pad = (n: number, w = 2) => String(n).padStart(w, '0');
     const utc = `${ts[0]}-${pad(ts[1])}-${pad(ts[2])} `
               + `${pad(ts[3])}:${pad(ts[4])}:${pad(ts[5])}`;
     return { utc, ageMs, ageStale, seq: Number(note.sequence ?? 0), expMs };
   });
+
+  /** Browser finished loading the current image. Flush the queue:
+   *  if a newer notification has arrived since we picked this one,
+   *  advance to the newest one (skipping intermediates is OK and
+   *  desirable on a slow link — we don't owe the operator every
+   *  frame, just the freshest one we can sustain). */
+  onImageLoad(): void {
+    this.imageLoading.set(false);
+    const latest = this.latestNote();
+    if (latest && latest !== this.displayedNote()) {
+      this.imageLoading.set(true);
+      this.displayedNote.set(latest);
+    }
+  }
+
+  /** 404 or network failure on an image fetch. Don't trap the queue:
+   *  clear ``loading`` so the next notification can be tried, and let
+   *  the operator see the symptom through the stale-age indicator. */
+  onImageError(): void {
+    this.imageLoading.set(false);
+  }
 
   transformStyle = computed(() => {
     const v = this.view();
@@ -476,6 +536,20 @@ export class FrameViewComponent {
     // counter) and stays well under any plausible polling concern.
     const ticker = setInterval(() => this.nowTick.set(Date.now()), 1000);
     inject(DestroyRef).onDestroy(() => clearInterval(ticker));
+
+    // First-frame priming: when the very first notification arrives,
+    // adopt it as ``displayedNote`` so the load-serialising loop has
+    // an initial state. Subsequent advances happen via ``onImageLoad``
+    // — but the first frame has no prior ``onload`` to fire on, so we
+    // bootstrap here. ``allowSignalWrites`` is needed because this
+    // runs inside the reactive graph.
+    effect(() => {
+      const latest = this.latestNote();
+      if (latest && this.displayedNote() === null) {
+        this.imageLoading.set(true);
+        this.displayedNote.set(latest);
+      }
+    }, { allowSignalWrites: true });
   }
 
   onSvgClick(ev: MouseEvent): void {
