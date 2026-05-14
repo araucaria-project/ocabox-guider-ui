@@ -585,29 +585,6 @@ export class FrameViewComponent {
       }
     }, { allowSignalWrites: true });
 
-    // Stuck-load watchdog. If ``onImageLoad`` doesn't fire within 15 s
-    // (network drop, image abort never resolves, browser quirk) AND a
-    // newer notification has arrived, force-advance — better to retry
-    // a fresh frame than wait forever. 15 s is generous: under VPN at
-    // ~100 KB/s a 2 MB JPEG takes ~20 s legitimately, so we set the
-    // ceiling slightly under that and instead advance only when the
-    // pending queue is large enough that catching up is worth more
-    // than finishing the current load.
-    const watchdog = setInterval(() => {
-      if (!this.imageLoading()) return;
-      const latest = this.latestNote();
-      const displayed = this.displayedNote();
-      if (!latest || !displayed) return;
-      const gap = Number(latest.sequence ?? 0) - Number(displayed.sequence ?? 0);
-      if (gap >= 10) {
-        // The displayed frame is so far behind that the operator is
-        // better served by a fresh attempt than by waiting for the
-        // in-flight load that may never complete.
-        this.imageLoading.set(false);
-        this.displayedNote.set(null);  // Drop to bootstrap; effect picks latest.
-      }
-    }, 5000);
-    inject(DestroyRef).onDestroy(() => clearInterval(watchdog));
   }
 
   onSvgClick(ev: MouseEvent): void {
