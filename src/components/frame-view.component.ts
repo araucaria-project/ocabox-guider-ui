@@ -110,8 +110,14 @@ const WHEEL_FACTOR = 1.2;
              Visible during pulse lifecycle so the operator sees which
              stage the pipeline is in: PULSING (mount moving),
              SETTLING (damping), ACQUIRING (looking for re-lock). -->
+        <!-- Phase pill — bottom-centre. Top-right is reserved for
+             control toggles (view-stars etc.); the pill there
+             overlapped them visually. Bottom-centre is also a more
+             natural "what's the system doing right now" location,
+             above the scale bar. -->
         @if (phaseLabel(); as p) {
-          <div class="absolute top-1 right-1 px-2 py-0.5 text-[10px]
+          <div class="absolute bottom-1 left-1/2 -translate-x-1/2
+                      px-2 py-0.5 text-[10px]
                       font-mono uppercase tracking-wider rounded
                       pointer-events-none"
                [class.bg-amber-500]="p === 'PULSING'"
