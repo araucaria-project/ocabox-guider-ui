@@ -84,17 +84,22 @@ const WHEEL_FACTOR = 1.2;
           <div class="absolute top-1 left-1 px-1.5 py-0.5 text-[10px]
                       font-mono tabular-nums leading-tight text-zinc-100
                       bg-black/55 rounded pointer-events-none whitespace-nowrap">
-            <div [class.text-amber-300]="lm.ageStale">
+            <!-- Flex + gap-x gives reliable inter-column spacing
+                 regardless of how Tailwind shakes out inline-block
+                 widths. Each cell gets min-width so as digit counts
+                 grow the columns don't pack together; tabular-nums
+                 stops single-digit jitter inside each cell. -->
+            <div class="flex gap-x-3" [class.text-amber-300]="lm.ageStale">
               <span>{{ lm.utc }}</span>
-              <span class="inline-block min-w-[8ch] text-right">{{ lm.ageStr }}</span>
-              <span class="inline-block min-w-[7ch] text-right">#{{ lm.seq }}</span>
-              <span class="inline-block min-w-[8ch] text-right">exp {{ lm.expStr }}</span>
+              <span class="min-w-[5ch] text-right">{{ lm.ageStr }}</span>
+              <span class="min-w-[5ch] text-right">#{{ lm.seq }}</span>
+              <span>exp <span class="inline-block min-w-[5ch] text-right">{{ lm.expStr }}</span></span>
             </div>
             @if (imageLag(); as lag) {
-              <div class="text-amber-300">
+              <div class="flex gap-x-3 text-amber-300">
                 <span>↻ showing</span>
-                <span class="inline-block min-w-[7ch] text-right">#{{ lag.shownSeq }}</span>
-                <span class="inline-block min-w-[10ch] text-right">{{ lag.gapStr }} behind</span>
+                <span class="min-w-[5ch] text-right">#{{ lag.shownSeq }}</span>
+                <span><span class="inline-block min-w-[5ch] text-right">{{ lag.gapStr }}</span> behind</span>
               </div>
             }
           </div>
