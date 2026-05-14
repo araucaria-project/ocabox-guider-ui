@@ -15,15 +15,17 @@ const HOME_VIEW: View = { zoom: 1, panX: 0, panY: 0 };
  *  on the order of a few hundred ms (cadence) to tens of seconds
  *  (slow links, long exposures); raw "12345 ms" forces them to count
  *  digits. Sub-second → "850 ms"; sub-minute → "12.3 s"; longer
- *  → "2 min 14 s". */
+ *  → "2m 14s". Always two decimals in "s" range so the field width
+ *  stays constant (no "12 s" → "9.3 s" reflow). Pair with
+ *  ``tabular-nums`` + ``min-w-[Nch]`` on the host span. */
 function formatDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return '–';
   if (ms < 1000) return `${Math.round(ms)} ms`;
   const s = ms / 1000;
-  if (s < 60) return `${s.toFixed(s < 10 ? 1 : 0)} s`;
+  if (s < 60) return `${s.toFixed(1)} s`;
   const m = Math.floor(s / 60);
   const r = Math.round(s - m * 60);
-  return `${m} min ${r} s`;
+  return `${m}m ${String(r).padStart(2, '0')}s`;
 }
 const ZOOM_MIN = 1;
 const ZOOM_MAX = 16;
@@ -75,20 +77,24 @@ const WHEEL_FACTOR = 1.2;
         <!-- Two-line overlay. Top line = LATEST notification (system
              aliveness — UTC clock, age since exposure, exp time).
              Bottom line = DISPLAYED frame (what's actually on screen)
-             with the image-lag indicator. On a fast link they're the
-             same frame; on a slow one the gap tells the operator
-             exactly how stale the visible image is in human units. -->
+             with the image-lag indicator. Fixed-width columns
+             (tabular-nums + min-w-Nch) keep the line from reflowing
+             as digit values change. -->
         @if (latestMeta(); as lm) {
           <div class="absolute top-1 left-1 px-1.5 py-0.5 text-[10px]
-                      font-mono leading-tight text-zinc-100
-                      bg-black/55 rounded pointer-events-none">
+                      font-mono tabular-nums leading-tight text-zinc-100
+                      bg-black/55 rounded pointer-events-none whitespace-nowrap">
             <div [class.text-amber-300]="lm.ageStale">
-              {{ lm.utc }} · {{ lm.ageStr }}
-              · #{{ lm.seq }} · exp {{ lm.expStr }}
+              <span>{{ lm.utc }}</span>
+              <span class="inline-block min-w-[8ch] text-right">{{ lm.ageStr }}</span>
+              <span class="inline-block min-w-[7ch] text-right">#{{ lm.seq }}</span>
+              <span class="inline-block min-w-[8ch] text-right">exp {{ lm.expStr }}</span>
             </div>
             @if (imageLag(); as lag) {
               <div class="text-amber-300">
-                ↻ showing #{{ lag.shownSeq }} ({{ lag.gapStr }} behind)
+                <span>↻ showing</span>
+                <span class="inline-block min-w-[7ch] text-right">#{{ lag.shownSeq }}</span>
+                <span class="inline-block min-w-[10ch] text-right">{{ lag.gapStr }} behind</span>
               </div>
             }
           </div>
