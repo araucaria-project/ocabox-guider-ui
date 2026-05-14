@@ -420,19 +420,24 @@ export class FrameViewComponent {
   private host = viewChild<ElementRef<HTMLElement>>('host');
 
   /** Load-serialising image swap. Slow links (VPN) can't pull a
-   *  notification's JPEG before the next one arrives. Naively binding
+   *  notification's JPEG before the next one arrives; naively binding
    *  ``<img [src]>`` to the latest URL aborts the in-flight fetch
-   *  every time, so the browser never finishes any image and the
+   *  each time, so the browser never finishes any image and the
    *  displayed frame freezes — while the metadata races ahead.
    *
-   *  Pattern: keep two signals — ``displayedNote`` is what the user
-   *  actually sees; ``latestNote`` is the most recent notification.
-   *  When ``latestNote`` arrives we adopt it as ``displayedNote``
-   *  only if nothing is currently loading; otherwise we wait for the
-   *  ``(load)`` event to flush the queue. This gives natural
-   *  rate-limiting that matches the operator's actual bandwidth —
-   *  every frame visible was fully fetched. The ``↻ +N`` badge tells
-   *  them how far behind the display is. */
+   *  State machine:
+   *  - ``displayedNote`` = what the ``<img>`` element is bound to.
+   *  - ``imageLoading`` = a fetch is in progress (set true when we
+   *    point ``<img src>`` at a new URL, cleared by ``(load)`` /
+   *    ``(error)``).
+   *  - When ``latestNote`` changes AND we're not loading AND latest
+   *    differs from displayed → adopt the latest into ``displayedNote``
+   *    (single effect below). That changes the URL, browser fetches,
+   *    ``(load)`` fires when done. We *don't* advance from inside
+   *    ``onImageLoad`` because if the URL happens to match what was
+   *    already there (same note adopted again, or the fallback path),
+   *    no new fetch fires and the chain would stall. Driving advance
+   *    from the latestNote-signal closure is robust against that. */
   private displayedNote = signal<ThumbnailNotification | null>(null);
   private latestNote = computed<ThumbnailNotification | null>(() =>
     this.store.thumbnails().get(this.instance()) ?? null,
@@ -441,14 +446,7 @@ export class FrameViewComponent {
 
   displayedUrl = computed<string | null>(() => {
     const note = this.displayedNote();
-    if (!note) {
-      // Initial: nothing displayed yet — adopt the very first
-      // notification synchronously so the first frame appears
-      // without waiting for an onload that hasn't been bound yet.
-      const first = this.latestNote();
-      return first ? this.store.resolveThumbnailUrl(first.path) : null;
-    }
-    return this.store.resolveThumbnailUrl(note.path);
+    return note ? this.store.resolveThumbnailUrl(note.path) : null;
   });
 
   /** ``now`` ticker for live "age of frame" display. Re-evaluates
@@ -518,18 +516,14 @@ export class FrameViewComponent {
     return { shownSeq: dseq, gap, gapStr: formatDuration(gapMs) };
   });
 
-  /** Browser finished loading the current image. Flush the queue:
-   *  if a newer notification has arrived since we picked this one,
-   *  advance to the newest one (skipping intermediates is OK and
-   *  desirable on a slow link — we don't owe the operator every
-   *  frame, just the freshest one we can sustain). */
+  /** Browser finished loading the current image. Clear the loading
+   *  flag — that re-arms the advancement effect, which will pick up
+   *  the latest note (possibly multiple frames newer by now) and
+   *  start the next fetch. Skipping intermediates on a slow link is
+   *  desirable: we don't owe the operator every frame, just the
+   *  freshest one we can sustain. */
   onImageLoad(): void {
     this.imageLoading.set(false);
-    const latest = this.latestNote();
-    if (latest && latest !== this.displayedNote()) {
-      this.imageLoading.set(true);
-      this.displayedNote.set(latest);
-    }
   }
 
   /** 404 or network failure on an image fetch. Don't trap the queue:
@@ -582,18 +576,23 @@ export class FrameViewComponent {
     const ticker = setInterval(() => this.nowTick.set(Date.now()), 1000);
     inject(DestroyRef).onDestroy(() => clearInterval(ticker));
 
-    // First-frame priming: when the very first notification arrives,
-    // adopt it as ``displayedNote`` so the load-serialising loop has
-    // an initial state. Subsequent advances happen via ``onImageLoad``
-    // — but the first frame has no prior ``onload`` to fire on, so we
-    // bootstrap here. ``allowSignalWrites`` is needed because this
-    // runs inside the reactive graph.
+    // Image-advance pump. Fires whenever ``latestNote`` changes (new
+    // notification) OR ``imageLoading`` flips back to false (current
+    // load finished). Adopts the freshest note iff no fetch is in
+    // progress and the latest actually differs from what's displayed.
+    // Covers both bootstrap (displayed=null) and steady-state
+    // advancement on a slow link. Earlier version advanced from
+    // ``onImageLoad``, which silently stalled when the URL happened
+    // to match what was already there (no new fetch → no new load
+    // event → no further advancement). Driving from the signal
+    // closure is robust against that.
     effect(() => {
       const latest = this.latestNote();
-      if (latest && this.displayedNote() === null) {
-        this.imageLoading.set(true);
-        this.displayedNote.set(latest);
-      }
+      if (!latest) return;
+      if (this.imageLoading()) return;
+      if (latest === this.displayedNote()) return;
+      this.imageLoading.set(true);
+      this.displayedNote.set(latest);
     }, { allowSignalWrites: true });
 
   }
