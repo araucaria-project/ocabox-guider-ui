@@ -1,6 +1,6 @@
 {
   "name": "ocabox-guider-ui",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Web UI for the ocabox guiding service. Discovers active guiders via NATS and provides a live thumbnail viewer + click-to-acquire + manual pulse controls.",
   "scripts": {
     "ng": "ng",
