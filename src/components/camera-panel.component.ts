@@ -33,7 +33,7 @@ type Snapshot = {
   imports: [CommonModule, FormsModule],
   template: `
     @if (upstream(); as up) {
-      <div class="space-y-3 text-xs">
+      <div class="space-y-2 text-xs">
 
         <!-- ─── Exposure ─── -->
         <div>

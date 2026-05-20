@@ -64,9 +64,18 @@ const RETICLE_KEY = 'ocabox-guider.reticle';
         (reticleChanged)="setReticle($event)"
       ></app-mode-toolbar>
 
-      <div class="grid grid-cols-1 xl:grid-cols-12 gap-px bg-zinc-900">
+      <!-- ``items-start`` + per-column ``max-h`` keeps the dashboard
+           inside the viewport on a 1440×900 / 1280×800 laptop. Without
+           this, the grid stretched every column to match the tallest
+           one, the frame SVG ate 1000+ px of vertical space, and the
+           operator had to scroll to reach the manual-pulse pad and the
+           journal. Now: frame locked to the camera's 1936:1216 aspect
+           ratio (the only honest constraint — the bitmap is landscape,
+           the column is portrait), sidebars scroll their own content
+           when overflowing. -->
+      <div class="grid grid-cols-1 xl:grid-cols-12 gap-px bg-zinc-900 xl:items-start xl:max-h-[calc(100vh-180px)]">
         <!-- ─── Frame ─── -->
-        <div class="xl:col-span-7 bg-zinc-950 min-h-[400px] xl:min-h-[600px]">
+        <div class="xl:col-span-7 bg-zinc-950 min-h-[400px] xl:min-h-[480px] xl:aspect-[1936/1216] xl:max-h-full">
           <app-frame-view
             #frame
             [state]="state()"
@@ -77,8 +86,8 @@ const RETICLE_KEY = 'ocabox-guider.reticle';
           ></app-frame-view>
         </div>
 
-        <!-- ─── Telemetry: drift chart + RMS ─── -->
-        <div class="xl:col-span-3 bg-zinc-950 p-3 space-y-3">
+        <!-- ─── Telemetry: drift chart + RMS + journal ─── -->
+        <div class="xl:col-span-3 bg-zinc-950 p-3 space-y-3 xl:max-h-full xl:overflow-y-auto">
           <div class="flex items-center justify-between gap-2">
             <div class="text-[11px] uppercase tracking-wider text-zinc-500">drift error</div>
             <div class="flex items-center gap-1">
@@ -130,10 +139,22 @@ const RETICLE_KEY = 'ocabox-guider.reticle';
               <div class="text-[10px] text-zinc-500">px · n={{ rmsN() }}</div>
             </div>
           </div>
+
+          <!-- Journal lives alongside the drift chart: operators read
+               them together (event "lock_at requested" ↔ drift jump on
+               the chart), and this column has the headroom for it
+               whereas the right column was overflowing. -->
+          <div class="pt-3 border-t border-zinc-800">
+            <div class="text-[11px] uppercase tracking-wider text-zinc-500 mb-1">journal</div>
+            <app-journal-panel
+              [events]="events()"
+              [journal]="journals()"
+            ></app-journal-panel>
+          </div>
         </div>
 
-        <!-- ─── Controls: camera | diagnostics | manual-or-fiber | journal ─── -->
-        <div class="xl:col-span-2 bg-zinc-950 p-3 space-y-3 border-l border-zinc-800">
+        <!-- ─── Controls: camera | diagnostics | manual-or-fiber ─── -->
+        <div class="xl:col-span-2 bg-zinc-950 p-3 space-y-3 border-l border-zinc-800 xl:max-h-full xl:overflow-y-auto">
           <div>
             <div class="text-[11px] uppercase tracking-wider text-zinc-500 mb-2">camera</div>
             <app-camera-panel
@@ -199,17 +220,6 @@ const RETICLE_KEY = 'ocabox-guider.reticle';
               [state]="state()"
               [runProbe]="probeRunner"
             ></app-calibration-panel>
-          </div>
-
-          <!-- Journal — drops to the bottom of the right column so the
-               operator sees recent events alongside the controls that
-               produced them, rather than having to look left. -->
-          <div class="pt-3 border-t border-zinc-800">
-            <div class="text-[11px] uppercase tracking-wider text-zinc-500 mb-1">journal</div>
-            <app-journal-panel
-              [events]="events()"
-              [journal]="journals()"
-            ></app-journal-panel>
           </div>
         </div>
       </div>

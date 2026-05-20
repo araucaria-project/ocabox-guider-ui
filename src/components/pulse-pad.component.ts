@@ -27,7 +27,7 @@ import { FormsModule } from '@angular/forms';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, FormsModule],
   template: `
-    <div class="space-y-2 text-xs">
+    <div class="space-y-1.5 text-xs">
       <!-- Mode toggle -->
       <div class="flex gap-1 text-[10px]">
         <button
@@ -61,7 +61,7 @@ import { FormsModule } from '@angular/forms';
                (ngModelChange)="duration.set($event)"
                aria-label="custom pulse duration">
 
-        <div class="grid grid-cols-3 gap-1.5 max-w-[200px] mx-auto pt-2">
+        <div class="grid grid-cols-3 gap-1 max-w-[150px] mx-auto pt-1">
           <span></span>
           <button class="aspect-square rounded-md bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 text-base font-semibold"
                   (click)="pulse.emit({ direction: 0, duration_ms: duration() })"
@@ -105,23 +105,23 @@ import { FormsModule } from '@angular/forms';
         <!-- Image-axis arrows. Sign convention: image-Y goes DOWN
              (browser raster), so ↑ = -Y, ↓ = +Y, ← = -X, → = +X.
              Server's pulse_pixels takes (dx_px, dy_px) verbatim. -->
-        <div class="grid grid-cols-3 gap-1.5 max-w-[200px] mx-auto pt-2">
+        <div class="grid grid-cols-3 gap-1 max-w-[150px] mx-auto pt-1">
           <span></span>
-          <button class="aspect-square rounded-md bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 text-lg font-semibold"
+          <button class="aspect-square rounded-md bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 text-base font-semibold"
                   (click)="pulsePx.emit({ dx_px: 0, dy_px: -pixels() })"
                   title="move star up (image −Y)">↑</button>
           <span></span>
-          <button class="aspect-square rounded-md bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 text-lg font-semibold"
+          <button class="aspect-square rounded-md bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 text-base font-semibold"
                   (click)="pulsePx.emit({ dx_px: -pixels(), dy_px: 0 })"
                   title="move star left (image −X)">←</button>
           <div class="aspect-square rounded-md border border-zinc-800 grid place-items-center text-[10px] text-zinc-500 font-mono">
             {{ pixels() }}<br>px
           </div>
-          <button class="aspect-square rounded-md bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 text-lg font-semibold"
+          <button class="aspect-square rounded-md bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 text-base font-semibold"
                   (click)="pulsePx.emit({ dx_px: pixels(), dy_px: 0 })"
                   title="move star right (image +X)">→</button>
           <span></span>
-          <button class="aspect-square rounded-md bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 text-lg font-semibold"
+          <button class="aspect-square rounded-md bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 text-base font-semibold"
                   (click)="pulsePx.emit({ dx_px: 0, dy_px: pixels() })"
                   title="move star down (image +Y)">↓</button>
           <span></span>
