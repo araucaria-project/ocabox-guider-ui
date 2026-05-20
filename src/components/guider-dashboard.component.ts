@@ -64,16 +64,16 @@ const RETICLE_KEY = 'ocabox-guider.reticle';
         (reticleChanged)="setReticle($event)"
       ></app-mode-toolbar>
 
-      <!-- ``items-start`` + per-column ``max-h`` keeps the dashboard
-           inside the viewport on a 1440×900 / 1280×800 laptop. Without
-           this, the grid stretched every column to match the tallest
-           one, the frame SVG ate 1000+ px of vertical space, and the
-           operator had to scroll to reach the manual-pulse pad and the
-           journal. Now: frame locked to the camera's 1936:1216 aspect
-           ratio (the only honest constraint — the bitmap is landscape,
-           the column is portrait), sidebars scroll their own content
-           when overflowing. -->
-      <div class="grid grid-cols-1 xl:grid-cols-12 gap-px bg-zinc-900 xl:items-start xl:max-h-[calc(100vh-180px)]">
+      <!-- items-start + per-column max-h keeps the dashboard inside
+           the viewport on a 1440x900 / 1280x800 laptop. Without this,
+           the grid stretched every column to match the tallest one, the
+           frame SVG ate 1000+ px of vertical space, and the operator
+           had to scroll to reach the manual-pulse pad and the journal.
+           Now: frame locked to the camera's 1936:1216 aspect ratio
+           (the only honest constraint - the bitmap is landscape, the
+           column is portrait), sidebars scroll their own content when
+           overflowing. -->
+      <div class="grid grid-cols-1 xl:grid-cols-12 gap-px bg-zinc-900 xl:items-start xl:max-h-[calc(100vh-220px)]">
         <!-- ─── Frame ─── -->
         <div class="xl:col-span-7 bg-zinc-950 min-h-[400px] xl:min-h-[480px] xl:aspect-[1936/1216] xl:max-h-full">
           <app-frame-view
