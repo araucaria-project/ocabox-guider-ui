@@ -25,7 +25,6 @@ export interface GuiderInfo {
   started_at: number[] | null;
   subjects: {
     thumbnail_ready: string;
-    active_correction: string;
   };
   pipelines: PipelineInfo[];
 }
@@ -41,7 +40,6 @@ export interface PipelineInfo {
     state: string;
     events: string;
     journal: string;
-    correction: string;
   };
   rpcs: string[];
 }
@@ -51,6 +49,12 @@ export interface PipelineState {
   camera_id: string;
   mode: string;
   method: string;
+  /** Method-specific config. Schema depends on ``method`` — for
+   *  ``single_star`` it's FFS knobs; for ``fiber_photocentroid`` it's
+   *  ``fiber_radius_px`` + ``analysis_radius_px`` + ``hole_zone_factor``
+   *  etc. UI components that need a specific knob check
+   *  ``method === '...'`` first to avoid reading missing fields. */
+  method_params: Record<string, unknown>;
   selection_policy: string;
   exp_time: number;
   current_exp_time: number | null;
@@ -548,9 +552,7 @@ export class GuiderStore {
       variant: (guider.variant as string | null) ?? null,
       subject_prefix: String(guider.subject_prefix ?? 'svc'),
       started_at: (guider.started_at as number[] | null) ?? null,
-      subjects: guider.subjects as GuiderInfo['subjects'] ?? {
-        thumbnail_ready: '', active_correction: '',
-      },
+      subjects: guider.subjects as GuiderInfo['subjects'] ?? { thumbnail_ready: '' },
       pipelines: (guider.pipelines as PipelineInfo[]) ?? [],
     };
     this.guiders.update(prev => {

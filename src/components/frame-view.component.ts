@@ -129,6 +129,19 @@ const WHEEL_FACTOR = 1.2;
           </div>
         }
 
+        <!-- Method badge — visible only when fiber mode is active so
+             the operator never confuses what they're seeing (no
+             candidate circles, no narrow box, filled black disc at
+             centre means fiber). single_star is the default and
+             needs no label. -->
+        @if (isFiberMode()) {
+          <div class="absolute bottom-1 right-2 px-2 py-0.5 text-[10px]
+                      font-mono uppercase tracking-wider rounded
+                      bg-sky-700 text-sky-50 pointer-events-none">
+            fiber
+          </div>
+        }
+
         <svg
           class="absolute inset-0 w-full h-full"
           [attr.viewBox]="'0 0 ' + sensorWidth() + ' ' + sensorHeight()"
@@ -143,8 +156,10 @@ const WHEEL_FACTOR = 1.2;
             <!-- All FFS detections (debug overlay). Toggled by the
                  telescope-icon button next to zoom controls. Best-rank
                  candidate is highlighted; TAB cycles lock_at through
-                 the list in rank order. -->
-            @if (showCandidates() && s.candidates && s.candidates.length > 0) {
+                 the list in rank order. Suppressed in fiber mode —
+                 fiber doesn't run star detection at all, so there are
+                 no candidates and the overlay would be empty or stale. -->
+            @if (!isFiberMode() && showCandidates() && s.candidates && s.candidates.length > 0) {
               @for (c of s.candidates; track $index; let i = $index) {
                 <circle
                   [attr.cx]="c[0]"
@@ -159,18 +174,55 @@ const WHEEL_FACTOR = 1.2;
               }
             }
 
-            <!-- Search circle = wide_search_radius_px around central_point. -->
-            <circle
-              [attr.cx]="s.central_point[0]"
-              [attr.cy]="s.central_point[1]"
-              [attr.r]="s.wide_search_radius_px"
-              fill="none"
-              stroke="rgba(125, 211, 252, 0.5)"
-              [attr.stroke-width]="overlayStrokePx()"
-              vector-effect="non-scaling-stroke"
-              stroke-dasharray="14,8"
-              pointer-events="none"
-            />
+            <!-- Search circle = wide_search_radius_px around central_point.
+                 Hidden in fiber mode — fiber doesn't do wide search,
+                 the dashed circle just adds visual noise around the
+                 reticle. -->
+            @if (!isFiberMode()) {
+              <circle
+                [attr.cx]="s.central_point[0]"
+                [attr.cy]="s.central_point[1]"
+                [attr.r]="s.wide_search_radius_px"
+                fill="none"
+                stroke="rgba(125, 211, 252, 0.5)"
+                [attr.stroke-width]="overlayStrokePx()"
+                vector-effect="non-scaling-stroke"
+                stroke-dasharray="14,8"
+                pointer-events="none"
+              />
+            }
+
+            <!-- Fiber hole — filled semi-transparent black disc of
+                 radius 'fiber_radius_px' at 'central_point'. Marks
+                 the spectrograph fibre entrance so the operator sees
+                 exactly where light gets coupled away from the
+                 detector. The analysis window (used by the photocentroid
+                 method) extends to 'analysis_radius_px', drawn as a
+                 thin sky-blue ring so the operator can see the
+                 still-being-measured region. -->
+            @if (isFiberMode()) {
+              <circle
+                [attr.cx]="s.central_point[0]"
+                [attr.cy]="s.central_point[1]"
+                [attr.r]="fiberRadiusPx()"
+                fill="rgba(0, 0, 0, 0.55)"
+                stroke="rgba(56, 189, 248, 0.7)"
+                [attr.stroke-width]="overlayStrokePx() * 0.8"
+                vector-effect="non-scaling-stroke"
+                pointer-events="none"
+              />
+              <circle
+                [attr.cx]="s.central_point[0]"
+                [attr.cy]="s.central_point[1]"
+                [attr.r]="analysisRadiusPx()"
+                fill="none"
+                stroke="rgba(125, 211, 252, 0.35)"
+                [attr.stroke-width]="overlayStrokePx() * 0.6"
+                stroke-dasharray="6,4"
+                vector-effect="non-scaling-stroke"
+                pointer-events="none"
+              />
+            }
 
             <!-- Centre reticle (operator's target). Style is selectable;
                  'none' suppresses the overlay entirely (used when star
@@ -261,8 +313,9 @@ const WHEEL_FACTOR = 1.2;
                  box jump to where the solver is *now* looking for the
                  star, not where it was when the pulse fired. Skipped
                  entirely during IN_FLIGHT / SETTLING — the trajectory
-                 arrow below is the right visualisation then. -->
-            @if (s.acquired && s.acquired_pos
+                 arrow below is the right visualisation then. Also
+                 skipped in fiber mode (no narrow-search step). -->
+            @if (!isFiberMode() && s.acquired && s.acquired_pos
                  && s.frame_phase !== 'in_flight'
                  && s.frame_phase !== 'settling') {
               <rect
@@ -368,8 +421,9 @@ const WHEEL_FACTOR = 1.2;
         <button
           type="button"
           (click)="toggleCandidates()"
-          [class]="showCandidates() ? 'bg-amber-700/80 hover:bg-amber-700 text-amber-50' : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-200'"
-          [title]="showCandidates() ? 'hide detection circles (currently shown — TAB cycles lock)' : 'show all detection candidates as circles (TAB cycles lock through them)'"
+          [disabled]="isFiberMode()"
+          [class]="showCandidates() && !isFiberMode() ? 'bg-amber-700/80 hover:bg-amber-700 text-amber-50' : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-200'"
+          [title]="isFiberMode() ? 'fiber method has no candidates — toggle disabled' : showCandidates() ? 'hide detection circles (currently shown — TAB cycles lock)' : 'show all detection candidates as circles (TAB cycles lock through them)'"
           class="w-7 h-7 rounded disabled:opacity-30 grid place-items-center"
         >
           <!-- detection-overlay icon: outer dotted circle + inner dot -->
@@ -426,6 +480,90 @@ const WHEEL_FACTOR = 1.2;
         </div>
       }
 
+      <!-- Subraster magnifier — HARPS-N-inspired inset showing the
+           central region at high zoom so the operator can see fine
+           sub-pixel wiggle inside the fibre hole. Only rendered in
+           fiber mode (where the photocentroid lives) and when an
+           image has actually loaded. Sits below the latest-meta
+           overlay; left side stays clear of the zoom controls on the
+           right. Same image URL as the main view — browser serves it
+           from cache, no extra fetch. -->
+      @if (isFiberMode() && displayedUrl(); as url) {
+        <div class="absolute bottom-12 left-1 z-10 pointer-events-none">
+          <div class="rounded border border-sky-600/70 bg-black/80 overflow-hidden"
+               style="width: 160px; height: 160px;">
+            <svg
+              [attr.viewBox]="subrasterViewBox()"
+              preserveAspectRatio="xMidYMid meet"
+              class="w-full h-full">
+              <image
+                [attr.href]="url"
+                x="0" y="0"
+                [attr.width]="sensorWidth()"
+                [attr.height]="sensorHeight()"
+                preserveAspectRatio="none"
+              />
+              <!-- Repeat the key overlays inside the inset so the
+                   operator can read photocentroid position vs reticle
+                   at the magnified scale. -->
+              @if (state(); as s) {
+                <!-- Fiber-hole disc + analysis ring -->
+                <circle
+                  [attr.cx]="s.central_point[0]"
+                  [attr.cy]="s.central_point[1]"
+                  [attr.r]="fiberRadiusPx()"
+                  fill="rgba(0, 0, 0, 0.45)"
+                  stroke="rgba(56, 189, 248, 0.85)"
+                  stroke-width="0.5"
+                  vector-effect="non-scaling-stroke"/>
+                <circle
+                  [attr.cx]="s.central_point[0]"
+                  [attr.cy]="s.central_point[1]"
+                  [attr.r]="analysisRadiusPx()"
+                  fill="none"
+                  stroke="rgba(125, 211, 252, 0.45)"
+                  stroke-width="0.5"
+                  stroke-dasharray="2,1.5"
+                  vector-effect="non-scaling-stroke"/>
+                <!-- Reticle crosshair (tiny so it doesn't obscure the
+                     fibre interior). -->
+                <line
+                  [attr.x1]="s.central_point[0] - 2"
+                  [attr.x2]="s.central_point[0] + 2"
+                  [attr.y1]="s.central_point[1]"
+                  [attr.y2]="s.central_point[1]"
+                  stroke="rgba(125, 211, 252, 0.9)"
+                  stroke-width="0.6"
+                  vector-effect="non-scaling-stroke"/>
+                <line
+                  [attr.x1]="s.central_point[0]"
+                  [attr.x2]="s.central_point[0]"
+                  [attr.y1]="s.central_point[1] - 2"
+                  [attr.y2]="s.central_point[1] + 2"
+                  stroke="rgba(125, 211, 252, 0.9)"
+                  stroke-width="0.6"
+                  vector-effect="non-scaling-stroke"/>
+                <!-- Photocentroid marker (acquired_pos in fiber mode). -->
+                @if (s.acquired && s.acquired_pos) {
+                  <circle
+                    [attr.cx]="s.acquired_pos[0]"
+                    [attr.cy]="s.acquired_pos[1]"
+                    r="1.5"
+                    fill="rgba(52, 211, 153, 0.95)"
+                    stroke="rgba(16, 185, 129, 1.0)"
+                    stroke-width="0.4"
+                    vector-effect="non-scaling-stroke"/>
+                }
+              }
+            </svg>
+          </div>
+          <!-- Tiny scale label below the inset. -->
+          <div class="mt-0.5 text-[9px] font-mono text-sky-300/70 text-center">
+            ±{{ subrasterHalfPx() | number:'1.0-0' }} px
+          </div>
+        </div>
+      }
+
       <!-- Coordinate readouts in the bottom-right corner (in screen space,
            not transformed — they always sit on the viewport). -->
       <div class="absolute bottom-1 right-2 flex flex-col items-end gap-0.5 text-[10px] font-mono text-zinc-300 pointer-events-none z-10">
@@ -449,10 +587,30 @@ export class FrameViewComponent {
 
   state = input.required<PipelineState | undefined>();
   instance = input.required<string>();
-  /** Sensor pixel extents — passed in so the parent can update them as
-   *  knowledge improves. Defaults match the BESO sensor (1936 × 1216). */
-  sensorWidth = input<number>(1936);
-  sensorHeight = input<number>(1216);
+  /** Caller-supplied sensor extent override. Normally we derive from
+   *  the latest thumbnail notification's ``dimensions`` field — that's
+   *  authoritative because the camera+protocol stack reports the
+   *  actual frame shape after binning/transpose. The inputs exist for
+   *  the rare case where a parent already knows the geometry before
+   *  the first thumbnail arrives. ``null`` means "use discovery". */
+  sensorWidthInput = input<number | null>(null, { alias: 'sensorWidth' });
+  sensorHeightInput = input<number | null>(null, { alias: 'sensorHeight' });
+
+  /** Effective sensor dimensions: thumbnail-derived first, then
+   *  explicit input override, then BESO defaults. The defaults remain
+   *  so the SVG has something to draw before the first thumbnail
+   *  lands (otherwise the viewBox would be 0×0 and the reticle would
+   *  flash off-screen during page load). */
+  sensorWidth = computed(() => {
+    const dim = this.latestNote()?.dimensions;
+    if (Array.isArray(dim) && dim[0] > 0) return Number(dim[0]);
+    return this.sensorWidthInput() ?? 1936;
+  });
+  sensorHeight = computed(() => {
+    const dim = this.latestNote()?.dimensions;
+    if (Array.isArray(dim) && dim[1] > 0) return Number(dim[1]);
+    return this.sensorHeightInput() ?? 1216;
+  });
   /** Reticle drawing style for the central-point overlay. */
   reticle = input<ReticleStyle>('classic');
 
@@ -574,6 +732,52 @@ export class FrameViewComponent {
       case 'acquiring': return 'ACQUIRING';
       default: return null;
     }
+  });
+
+  /** Fiber mode is active when the solver method is
+   *  ``fiber_photocentroid``. Flips the overlay set: candidate circles,
+   *  search-radius circle and narrow-search box go away; filled
+   *  fiber-hole disc + analysis-window ring + FIBER badge appear. */
+  isFiberMode = computed<boolean>(() => {
+    return this.state()?.method === 'fiber_photocentroid';
+  });
+
+  /** Fiber-hole radius (pixels) sourced from the active method's
+   *  ``method_params.fiber_radius_px``. Falls back to a sensible
+   *  default if the field is missing (e.g. legacy state cache before
+   *  first state push). Same fallback strategy for the analysis
+   *  window radius below. */
+  fiberRadiusPx = computed<number>(() => {
+    const mp = this.state()?.method_params;
+    const v = Number(mp?.['fiber_radius_px']);
+    return Number.isFinite(v) && v > 0 ? v : 5;
+  });
+
+  analysisRadiusPx = computed<number>(() => {
+    const mp = this.state()?.method_params;
+    const v = Number(mp?.['analysis_radius_px']);
+    return Number.isFinite(v) && v > 0 ? v : 15;
+  });
+
+  /** Subraster (magnifier inset) half-size in sensor pixels — set
+   *  to 1.5× the analysis radius so the operator sees a bit of
+   *  context around the analysis window. Clamped so the inset doesn't
+   *  pretend to show more than the camera produces. */
+  subrasterHalfPx = computed<number>(() => {
+    const r = this.analysisRadiusPx();
+    return Math.max(8, Math.min(60, Math.round(r * 1.5)));
+  });
+
+  /** viewBox string for the subraster SVG — centred on central_point
+   *  with the half-size from above. Falls back to the sensor centre
+   *  if central_point isn't set yet (early bootstrap before the first
+   *  state push). */
+  subrasterViewBox = computed<string>(() => {
+    const s = this.state();
+    const cx = s?.central_point?.[0] ?? this.sensorWidth() / 2;
+    const cy = s?.central_point?.[1] ?? this.sensorHeight() / 2;
+    const r = this.subrasterHalfPx();
+    return `${cx - r} ${cy - r} ${2 * r} ${2 * r}`;
   });
 
   /** Image lag — how far behind the displayed frame is, in both

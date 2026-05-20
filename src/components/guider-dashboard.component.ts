@@ -8,6 +8,7 @@ import { ModeToolbarComponent } from './mode-toolbar.component';
 import { CameraPanelComponent } from './camera-panel.component';
 import { PulsePadComponent } from './pulse-pad.component';
 import { CalibrationPanelComponent, ProbeRunner } from './calibration-panel.component';
+import { FiberConfigPanelComponent } from './fiber-config-panel.component';
 import { JournalPanelComponent } from './journal-panel.component';
 import { StatusBarComponent } from './status-bar.component';
 import { ReticleStyle } from './reticle.component';
@@ -46,6 +47,7 @@ const RETICLE_KEY = 'ocabox-guider.reticle';
     CameraPanelComponent,
     PulsePadComponent,
     CalibrationPanelComponent,
+    FiberConfigPanelComponent,
     JournalPanelComponent,
     StatusBarComponent,
   ],
@@ -55,6 +57,7 @@ const RETICLE_KEY = 'ocabox-guider.reticle';
         [state]="state()"
         [reticle]="reticle()"
         (modeRequested)="setMode($event)"
+        (methodRequested)="setMethod($event)"
         (acquireRequested)="acquire()"
         (dropToReticleRequested)="dropToReticle()"
         (reticleHomeRequested)="reticleHome()"
@@ -74,7 +77,7 @@ const RETICLE_KEY = 'ocabox-guider.reticle';
           ></app-frame-view>
         </div>
 
-        <!-- ─── Telemetry ─── -->
+        <!-- ─── Telemetry: drift chart + RMS ─── -->
         <div class="xl:col-span-3 bg-zinc-950 p-3 space-y-3">
           <div class="flex items-center justify-between gap-2">
             <div class="text-[11px] uppercase tracking-wider text-zinc-500">drift error</div>
@@ -127,40 +130,10 @@ const RETICLE_KEY = 'ocabox-guider.reticle';
               <div class="text-[10px] text-zinc-500">px · n={{ rmsN() }}</div>
             </div>
           </div>
-
-          <!-- Spot diagnostics from the latest state -->
-          <div class="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] font-mono text-zinc-300 pt-1 border-t border-zinc-800">
-            <div class="text-zinc-500">acquired</div>
-            <div [class.text-emerald-400]="state()?.acquired" [class.text-zinc-400]="!state()?.acquired">
-              {{ state()?.acquired ? 'yes' : 'no' }}
-            </div>
-            <div class="text-zinc-500">FWHM</div>
-            <div>{{ state()?.fwhm_recent ?? '—' }}</div>
-            <div class="text-zinc-500">last Δ (px)</div>
-            <div>
-              {{ state()?.last_correction_dx_px ?? '—' }},
-              {{ state()?.last_correction_dy_px ?? '—' }}
-            </div>
-            <div class="text-zinc-500">acquired_adu</div>
-            <div [class.text-rose-400]="aduSaturated()"
-                 [class.font-semibold]="aduSaturated()"
-                 [title]="aduSaturated() ? 'SATURATED — peak hits sensor clip; sub-pixel centroid degrades. Lower exp_time.' : ''">
-              {{ state()?.acquired_adu ?? '—' }}
-              @if (aduSaturated()) { <span class="text-[10px]">⚠ SAT</span> }
-            </div>
-          </div>
-
-          <div class="pt-1 border-t border-zinc-800">
-            <div class="text-[11px] uppercase tracking-wider text-zinc-500 mb-1">journal</div>
-            <app-journal-panel
-              [events]="events()"
-              [journal]="journals()"
-            ></app-journal-panel>
-          </div>
         </div>
 
-        <!-- ─── Controls ─── -->
-        <div class="xl:col-span-2 bg-zinc-950 p-3 space-y-4 border-l border-zinc-800">
+        <!-- ─── Controls: camera | diagnostics | manual-or-fiber | journal ─── -->
+        <div class="xl:col-span-2 bg-zinc-950 p-3 space-y-3 border-l border-zinc-800">
           <div>
             <div class="text-[11px] uppercase tracking-wider text-zinc-500 mb-2">camera</div>
             <app-camera-panel
@@ -169,19 +142,74 @@ const RETICLE_KEY = 'ocabox-guider.reticle';
               (applyPatch)="applyCameraPatch($event)"
             ></app-camera-panel>
           </div>
+
+          <!-- Spot diagnostics — what the solver sees this frame. -->
           <div class="pt-3 border-t border-zinc-800">
-            <div class="text-[11px] uppercase tracking-wider text-zinc-500 mb-2">manual pulse</div>
-            <app-pulse-pad
-              #pad
-              (pulse)="manualPulse($event)"
-              (pulsePx)="manualPulsePx($event)"
-            ></app-pulse-pad>
+            <div class="text-[11px] uppercase tracking-wider text-zinc-500 mb-2">diagnostics</div>
+            <div class="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] font-mono text-zinc-300">
+              <div class="text-zinc-500">acquired</div>
+              <div [class.text-emerald-400]="state()?.acquired" [class.text-zinc-400]="!state()?.acquired">
+                {{ state()?.acquired ? 'yes' : 'no' }}
+              </div>
+              <div class="text-zinc-500">FWHM</div>
+              <div>{{ state()?.fwhm_recent ?? '—' }}</div>
+              <div class="text-zinc-500">last Δ (px)</div>
+              <div>
+                {{ state()?.last_correction_dx_px ?? '—' }},
+                {{ state()?.last_correction_dy_px ?? '—' }}
+              </div>
+              <div class="text-zinc-500">ADU</div>
+              <div [class.text-rose-400]="aduSaturated()"
+                   [class.font-semibold]="aduSaturated()"
+                   [title]="aduSaturated() ? 'SATURATED — peak hits sensor clip; sub-pixel centroid degrades. Lower exp_time.' : ''">
+                {{ state()?.acquired_adu ?? '—' }}
+                @if (aduSaturated()) { <span class="text-[10px]">⚠ SAT</span> }
+              </div>
+            </div>
           </div>
-          <div>
+
+          <!-- Manual pulse OR fiber tuning, depending on active method.
+               In single-star mode the pulse pad is the everyday "nudge
+               the mount" control. In fiber mode there are no individual
+               manual pulses (operator just lets the photocentroid loop
+               do its job); instead we expose the four tuning knobs that
+               actually matter for fiber guiding. -->
+          @if (isFiberMode()) {
+            <div class="pt-3 border-t border-zinc-800">
+              <div class="text-[11px] uppercase tracking-wider text-zinc-500 mb-2">fiber config</div>
+              <app-fiber-config-panel
+                #fiber
+                [state]="state()"
+                (applyParams)="applyFiberParams($event)"
+              ></app-fiber-config-panel>
+            </div>
+          } @else {
+            <div class="pt-3 border-t border-zinc-800">
+              <div class="text-[11px] uppercase tracking-wider text-zinc-500 mb-2">manual pulse</div>
+              <app-pulse-pad
+                #pad
+                (pulse)="manualPulse($event)"
+                (pulsePx)="manualPulsePx($event)"
+              ></app-pulse-pad>
+            </div>
+          }
+
+          <div class="pt-3 border-t border-zinc-800">
             <app-calibration-panel
               [state]="state()"
               [runProbe]="probeRunner"
             ></app-calibration-panel>
+          </div>
+
+          <!-- Journal — drops to the bottom of the right column so the
+               operator sees recent events alongside the controls that
+               produced them, rather than having to look left. -->
+          <div class="pt-3 border-t border-zinc-800">
+            <div class="text-[11px] uppercase tracking-wider text-zinc-500 mb-1">journal</div>
+            <app-journal-panel
+              [events]="events()"
+              [journal]="journals()"
+            ></app-journal-panel>
           </div>
         </div>
       </div>
@@ -200,6 +228,12 @@ export class GuiderDashboardComponent {
   cameraPanel = viewChild<CameraPanelComponent>('cam');
   pulsePad = viewChild<PulsePadComponent>('pad');
   frameView = viewChild<FrameViewComponent>('frame');
+  fiberPanel = viewChild<FiberConfigPanelComponent>('fiber');
+
+  /** Method-aware UI branching: when fiber is active the manual-pulse
+   *  pad is replaced by the fiber config panel (different operator
+   *  workflow, different controls). */
+  isFiberMode = computed(() => this.state()?.method === 'fiber_photocentroid');
 
   reticle = signal<ReticleStyle>(this.loadReticle());
 
@@ -316,6 +350,46 @@ export class GuiderDashboardComponent {
       this.store.setMode(this.guider().instance, this.firstPipelineId(), mode));
   }
 
+  /** Defaults shipped client-side so a method switch always lands with a
+   *  workable config — server-side fields fall back to the method
+   *  constructor's own defaults if a value is missing, but going through
+   *  the explicit map keeps the UI honest about which knobs the
+   *  operator can tune later. Match the constructor defaults in
+   *  ``fiber_photocentroid.py`` / ``single_star.py``. */
+  private readonly METHOD_DEFAULTS: Record<string, Record<string, unknown>> = {
+    single_star: {
+      fwhm: 3.0,
+      threshold: 7.0,
+      saturation_adu: 62000.0,
+      min_pixels_above_threshold: 5,
+      centroid_radius_px: 10,
+      centroid_threshold_sigma: 3.0,
+      min_smoothed_sigma: 3.0,
+      max_concentration: 0.5,
+      rank_by: 'aperture',
+    },
+    fiber_photocentroid: {
+      fiber_radius_px: 5.0,
+      analysis_radius_px: 15.0,
+      adu_sigma_threshold: 3.0,
+      hole_zone_factor: 2.0,
+      saturation_adu: 62000.0,
+    },
+  };
+
+  setMethod(method: string): void {
+    const params = this.METHOD_DEFAULTS[method] ?? {};
+    // Send both the method name and the param block in a single set_state
+    // — server-side Controller.set_state sees the method change and calls
+    // ``pipeline.swap_method`` with the params block from the same patch.
+    this.runRpc(`set_method(${method})`, () =>
+      this.store.setState(
+        this.guider().instance, this.firstPipelineId(),
+        { method, method_params: params },
+      ),
+    );
+  }
+
   acquire(): void {
     this.runRpc('acquire', () =>
       this.store.acquire(this.guider().instance, this.firstPipelineId()));
@@ -363,6 +437,25 @@ export class GuiderDashboardComponent {
   lockAt(x: number, y: number): void {
     this.runRpc(`lock_at(${Math.round(x)}, ${Math.round(y)})`, () =>
       this.store.lockAt(this.guider().instance, this.firstPipelineId(), x, y));
+  }
+
+  /** Operator changed fiber tuning knobs and hit Apply. Send a full
+   *  method_params block alongside ``method`` so the server-side
+   *  swap-detection picks it up and rebuilds the method with the new
+   *  values (same path as the method-radio click). */
+  applyFiberParams(params: Record<string, number>): void {
+    const inst = this.guider().instance;
+    const pid = this.firstPipelineId();
+    this.store.setState(inst, pid, { method: 'fiber_photocentroid', method_params: params })
+      .then((res: any) => {
+        const ok = res?.status === 'ok';
+        this.fiberPanel()?.reportRpc(
+          ok, ok ? 'fiber params applied' : `apply failed: ${res?.error ?? '?'}`,
+        );
+      })
+      .catch(e => this.fiberPanel()?.reportRpc(
+        false, `apply error: ${(e as Error).message ?? e}`,
+      ));
   }
 
   applyCameraPatch(patch: Record<string, unknown>): void {

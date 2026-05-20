@@ -41,14 +41,21 @@ import { GuiderStore } from '../services/guider.store';
         </label>
       </div>
 
-      <div class="text-xs text-zinc-500">
-        <span>Thumbnail-server hint: serve the guider's </span>
-        <code class="text-zinc-300">output_dir</code>
-        <span> as static files (e.g. </span>
-        <code class="text-zinc-300">caddy file-server --root /tmp/guider_thumbs --listen :8080</code>
-        <span>). Path prefix </span>
-        <code class="text-zinc-300">{{ store.thumbnailPathPrefix() }}</code>
-        <span> is stripped from the file path before fetching.</span>
+      <div class="text-xs text-zinc-500 space-y-1">
+        <div>
+          <span>Both values are auto-filled from </span>
+          <code class="text-zinc-300">thumbnail_svc.server</code>
+          <span> NATS discovery. Override only for SSH tunnels or reverse proxies — point the thumbnail base at the server's mount path (e.g. </span>
+          <code class="text-zinc-300">http://localhost:8090/thumbs</code>
+          <span>).</span>
+        </div>
+        @if (store.thumbnailPathPrefix(); as p) {
+          <div class="text-zinc-600">
+            <span>Notification paths get </span>
+            <code class="text-zinc-400">{{ p }}</code>
+            <span> stripped before being appended to the base URL.</span>
+          </div>
+        }
       </div>
 
       <div class="flex gap-2">
