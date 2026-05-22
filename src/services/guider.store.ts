@@ -706,6 +706,12 @@ export class GuiderStore {
     } else if (ev.event === 'enforcer_pulse') {
       const nMs = Number(payload['n_dur_ms']) || 0;
       const eMs = Number(payload['e_dur_ms']) || 0;
+      // Both axes below ``duration_min_ms`` come through with 0/0 —
+      // operator asked for *no* visual clue when nothing actually moved
+      // (only real, mount-touching pulses get a marker on the windrose
+      // / drift chart). The backend still emits and logs the event for
+      // debugging the SKIP pattern.
+      if (nMs === 0 && eMs === 0) return;
       this.appendIntervention(key, {
         t, kind: 'pulse',
         pulse: { total_ms: Math.hypot(nMs, eMs), source: 'auto' },
