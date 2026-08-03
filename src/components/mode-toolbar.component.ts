@@ -72,7 +72,7 @@ import { RETICLES, RETICLE_LABELS, ReticleStyle } from './reticle.component';
         <button
           class="rounded px-3 py-1.5 text-xs font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-100 disabled:opacity-40 disabled:cursor-not-allowed"
           [disabled]="!dropEnabled()"
-          [title]="dropEnabled() ? 'pull star into reticle (drop into fibre) — one-shot command' : 'requires guiding mode + active lock'"
+          [title]="dropEnabled() ? 'pull the locked star onto the reticle — one-shot command' : 'requires guiding mode + active lock'"
           (click)="dropToReticleRequested.emit()">
           drop → reticle
         </button>

@@ -132,6 +132,15 @@ const WHEEL_FACTOR = 1.2;
           </div>
         }
 
+        <!-- Transient click-rejection notice (wide-search guard). -->
+        @if (clickNotice(); as msg) {
+          <div class="absolute bottom-7 left-1/2 -translate-x-1/2 max-w-[80%]
+                      px-2 py-1 text-[11px] rounded bg-red-950/90 text-red-200
+                      border border-red-700/60 pointer-events-none text-center">
+            {{ msg }}
+          </div>
+        }
+
         <!-- Method badge — visible only when fiber mode is active so
              the operator never confuses what they're seeing (no
              candidate circles, no narrow box, filled black disc at
@@ -187,8 +196,8 @@ const WHEEL_FACTOR = 1.2;
                 [attr.cy]="s.central_point[1]"
                 [attr.r]="s.wide_search_radius_px"
                 fill="none"
-                stroke="rgba(125, 211, 252, 0.5)"
-                [attr.stroke-width]="overlayStrokePx()"
+                [attr.stroke]="wideBlink() ? 'rgba(248, 113, 113, 0.95)' : 'rgba(125, 211, 252, 0.5)'"
+                [attr.stroke-width]="overlayStrokePx() * (wideBlink() ? 1.8 : 1)"
                 vector-effect="non-scaling-stroke"
                 stroke-dasharray="14,8"
                 pointer-events="none"
@@ -241,17 +250,28 @@ const WHEEL_FACTOR = 1.2;
               ></g>
             }
 
-            <!-- Guide anchor (where guiding holds the star). Only shown
-                 in guiding mode; uses an amber X to distinguish from the
-                 cyan central reticle (target) and the green acquired
-                 marker (current star position). -->
-            @if (s.guide_anchor) {
+            <!-- Guide anchor (where guiding holds the star) — amber
+                 broken X, labelled. Drawn only when it carries
+                 information: guiding mode AND anchor meaningfully away
+                 from the reticle. After drop→reticle (and in fiber,
+                 where the target is definitionally the reticle) the X
+                 would sit exactly on the reticle and only confuse —
+                 there the green target line (below) takes over as the
+                 "guiding to reticle" cue. Field lesson 2026-07-29: an
+                 unlabelled always-on amber cross was read as noise. -->
+            @if (s.guide_anchor && s.mode === 'guiding' && anchorOffReticle()) {
               <g
                 [attr.transform]="'translate(' + s.guide_anchor[0] + ',' + s.guide_anchor[1] + ')'"
                 pointer-events="none"
               >
+                <text
+                  x="14" y="14"
+                  fill="rgba(251, 191, 36, 0.85)"
+                  [attr.font-size]="overlayLabelPx()"
+                  font-family="ui-monospace, monospace"
+                >anchor</text>
                 <!-- Broken X: 4 short segments with a gap at the centre
-                     so the pixel under the anchor (= the fibre hole at
+                     so the pixel under the anchor (= the reticle at
                      zoom) stays visible. -->
                 <line x1="-12" y1="-12" x2="-3" y2="-3"
                       stroke="rgba(251, 191, 36, 0.85)"
@@ -296,17 +316,25 @@ const WHEEL_FACTOR = 1.2;
                 </text>
               </g>
 
-              <!-- Vector from central → acquired (visible drift error). -->
-              <line
-                [attr.x1]="s.central_point[0]"
-                [attr.y1]="s.central_point[1]"
-                [attr.x2]="s.acquired_pos[0]"
-                [attr.y2]="s.acquired_pos[1]"
-                stroke="rgba(52, 211, 153, 0.45)"
-                [attr.stroke-width]="overlayStrokePx() * 0.9"
-                vector-effect="non-scaling-stroke"
-                pointer-events="none"
-              />
+              <!-- Target line: acquired → the position guiding is
+                   actually pulling toward (anchor, or reticle when
+                   anchor==reticle). Drawn ONLY in guiding and only
+                   while there is real separation — in monitoring, or
+                   when merely holding position (anchor==star), a line
+                   to the reticle would falsely announce "moving the
+                   star to centre" (2026-07-29 misreading). -->
+              @if (s.mode === 'guiding' && guideTarget(); as tgt) {
+                <line
+                  [attr.x1]="tgt[0]"
+                  [attr.y1]="tgt[1]"
+                  [attr.x2]="s.acquired_pos[0]"
+                  [attr.y2]="s.acquired_pos[1]"
+                  stroke="rgba(52, 211, 153, 0.45)"
+                  [attr.stroke-width]="overlayStrokePx() * 0.9"
+                  vector-effect="non-scaling-stroke"
+                  pointer-events="none"
+                />
+              }
             }
 
             <!-- Search-region box. In TRACKING (no pulse) it sits at
@@ -474,6 +502,21 @@ const WHEEL_FACTOR = 1.2;
         >
           1:1
         </button>
+        <div class="h-1"></div>
+        <button
+          type="button"
+          (click)="toggleInset()"
+          [class]="showInset() ? 'bg-sky-700/80 hover:bg-sky-700 text-sky-50' : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-200'"
+          [title]="showInset() ? 'hide reticle magnifier' : 'show reticle magnifier (close-up around the reticle)'"
+          class="w-7 h-7 rounded grid place-items-center"
+        >
+          <!-- reticle-magnifier icon: framed square + crosshair dot -->
+          <svg viewBox="0 0 16 16" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
+            <rect x="2" y="2" width="12" height="12" rx="1.5"/>
+            <line x1="8" y1="5.5" x2="8" y2="10.5"/>
+            <line x1="5.5" y1="8" x2="10.5" y2="8"/>
+          </svg>
+        </button>
       </div>
 
       <!-- Zoom indicator: only shown while zoomed. -->
@@ -483,15 +526,18 @@ const WHEEL_FACTOR = 1.2;
         </div>
       }
 
-      <!-- Subraster magnifier — HARPS-N-inspired inset showing the
-           central region at high zoom so the operator can see fine
-           sub-pixel wiggle inside the fibre hole. Only rendered in
-           fiber mode (where the photocentroid lives) and when an
-           image has actually loaded. Sits below the latest-meta
-           overlay; left side stays clear of the zoom controls on the
-           right. Same image URL as the main view — browser serves it
-           from cache, no extra fetch. -->
-      @if (isFiberMode() && displayedUrl(); as url) {
+      <!-- Reticle magnifier — HARPS-N-inspired inset showing a
+           close-up around the reticle so the operator can see
+           sub-pixel detail at the target position. Method-independent
+           tool (toggle button in the zoom stack): observers use it as
+           a viewfinder during manual work as much as during fiber
+           guiding. Auto-enables the first time fiber mode activates
+           if the operator never touched the toggle (fiber work
+           without the close-up is flying blind). Method-specific
+           overlays inside are gated separately. Same image URL as
+           the main view — browser serves it from cache, no extra
+           fetch. -->
+      @if (showInset() && displayedUrl(); as url) {
         <div class="absolute bottom-12 left-1 z-10 pointer-events-none">
           <div class="rounded border border-sky-600/70 bg-black/80 overflow-hidden"
                style="width: 160px; height: 160px;">
@@ -510,26 +556,30 @@ const WHEEL_FACTOR = 1.2;
                    operator can read photocentroid position vs reticle
                    at the magnified scale. -->
               @if (state(); as s) {
-                <!-- Fiber-hole disc + analysis ring -->
-                <circle
-                  [attr.cx]="s.central_point[0]"
-                  [attr.cy]="s.central_point[1]"
-                  [attr.r]="fiberRadiusPx()"
-                  fill="rgba(0, 0, 0, 0.45)"
-                  stroke="rgba(56, 189, 248, 0.85)"
-                  stroke-width="0.5"
-                  vector-effect="non-scaling-stroke"/>
-                <circle
-                  [attr.cx]="s.central_point[0]"
-                  [attr.cy]="s.central_point[1]"
-                  [attr.r]="analysisRadiusPx()"
-                  fill="none"
-                  stroke="rgba(125, 211, 252, 0.45)"
-                  stroke-width="0.5"
-                  stroke-dasharray="2,1.5"
-                  vector-effect="non-scaling-stroke"/>
+                <!-- Fiber-method overlays only: hole disc + analysis
+                     ring visualise fiber_photocentroid parameters and
+                     mean nothing in other methods. -->
+                @if (isFiberMode()) {
+                  <circle
+                    [attr.cx]="s.central_point[0]"
+                    [attr.cy]="s.central_point[1]"
+                    [attr.r]="fiberRadiusPx()"
+                    fill="rgba(0, 0, 0, 0.45)"
+                    stroke="rgba(56, 189, 248, 0.85)"
+                    stroke-width="0.5"
+                    vector-effect="non-scaling-stroke"/>
+                  <circle
+                    [attr.cx]="s.central_point[0]"
+                    [attr.cy]="s.central_point[1]"
+                    [attr.r]="analysisRadiusPx()"
+                    fill="none"
+                    stroke="rgba(125, 211, 252, 0.45)"
+                    stroke-width="0.5"
+                    stroke-dasharray="2,1.5"
+                    vector-effect="non-scaling-stroke"/>
+                }
                 <!-- Reticle crosshair (tiny so it doesn't obscure the
-                     fibre interior). -->
+                     pixels at the target). -->
                 <line
                   [attr.x1]="s.central_point[0] - 2"
                   [attr.x2]="s.central_point[0] + 2"
@@ -546,7 +596,8 @@ const WHEEL_FACTOR = 1.2;
                   stroke="rgba(125, 211, 252, 0.9)"
                   stroke-width="0.6"
                   vector-effect="non-scaling-stroke"/>
-                <!-- Photocentroid marker (acquired_pos in fiber mode). -->
+                <!-- Acquired-position marker (photocentroid in fiber
+                     mode, locked star otherwise). -->
                 @if (s.acquired && s.acquired_pos) {
                   <circle
                     [attr.cx]="s.acquired_pos[0]"
@@ -645,6 +696,54 @@ export class FrameViewComponent {
    *  Driven by TAB key (next) / Shift-TAB (prev) and reset to 0 on
    *  every fresh candidate list. ``-1`` means nothing highlighted. */
   selectedCandidateIndex = signal<number>(-1);
+
+  /** Reticle-magnifier inset toggle — method-independent (toggle
+   *  button in the zoom stack). Persisted; additionally auto-enabled
+   *  the first time fiber mode activates if the operator never
+   *  touched the toggle (see constructor), preserving the previous
+   *  fiber workflow where the inset appeared automatically. */
+  showInset = signal<boolean>(this.loadShowInset());
+
+  /** True when guide_anchor sits meaningfully away from the reticle —
+   *  gates the amber anchor X (an X exactly on the reticle carries no
+   *  information; see template note). */
+  anchorOffReticle = computed<boolean>(() => {
+    const s = this.state();
+    const a = s?.guide_anchor, c = s?.central_point;
+    if (!a || !c) return false;
+    return Math.hypot(a[0] - c[0], a[1] - c[1]) > 1.0;
+  });
+
+  /** The position guiding is actually pulling the star toward —
+   *  anchor when set, else the reticle. Null unless there is real
+   *  separation from the acquired position (a zero-length target line
+   *  is visual noise; "holding in place" honestly draws nothing). */
+  guideTarget = computed<[number, number] | null>(() => {
+    const s = this.state();
+    if (!s?.acquired || !s.acquired_pos) return null;
+    const tgt = s.guide_anchor ?? s.central_point;
+    if (!tgt) return null;
+    const d = Math.hypot(tgt[0] - s.acquired_pos[0], tgt[1] - s.acquired_pos[1]);
+    return d > 1.0 ? [tgt[0], tgt[1]] : null;
+  });
+
+  /** Wide-search click guard state: brief red blink of the circle +
+   *  transient notice when a click is rejected (outside the circle, or
+   *  a selection click in fiber mode). Local mini-notice — no global
+   *  toast infrastructure exists yet by design. */
+  wideBlink = signal<boolean>(false);
+  clickNotice = signal<string | null>(null);
+  private noticeTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private rejectClick(message: string, blink: boolean): void {
+    if (blink) {
+      this.wideBlink.set(true);
+      setTimeout(() => this.wideBlink.set(false), 900);
+    }
+    this.clickNotice.set(message);
+    if (this.noticeTimer) clearTimeout(this.noticeTimer);
+    this.noticeTimer = setTimeout(() => this.clickNotice.set(null), 3500);
+  }
 
   readonly ZOOM_MIN = ZOOM_MIN;
   readonly ZOOM_MAX = ZOOM_MAX;
@@ -862,6 +961,17 @@ export class FrameViewComponent {
       const el = this.hostRef.nativeElement as HTMLElement;
       el.addEventListener('wheel', (ev) => this.onWheel(ev as WheelEvent), { passive: false });
     });
+    // Reticle-magnifier migration: before the toggle existed the inset
+    // appeared automatically with fiber mode. Preserve that habit for
+    // operators who never touched the new toggle — first fiber
+    // activation switches it on (once per page-load; the operator's
+    // explicit toggle always wins afterwards).
+    effect(() => {
+      if (this.isFiberMode() && !this.showInset() && !this.insetTouched()) {
+        this.showInset.set(true);
+      }
+    }, { allowSignalWrites: true });
+
     // Live age ticker — drives the frame-meta overlay's age readout
     // without waiting for a new thumbnail notification. 1 Hz is plenty
     // (operator's eye doesn't resolve faster than that for a ms-level
@@ -893,6 +1003,26 @@ export class FrameViewComponent {
   onSvgClick(ev: MouseEvent): void {
     const pt = this.svgPoint(ev);
     if (!pt) return;
+    // Client-side selection guard. The server accepts any lock_at and
+    // returns ok — the failure used to be silent and downstream (narrow
+    // miss → wide re-acquire snapping back inside the circle), which
+    // read as "clicking does nothing" (2026-07-29). Reject up front
+    // with visible feedback instead.
+    const s = this.state();
+    if (this.isFiberMode()) {
+      this.rejectClick('fiber method has no star selection — the reticle is the target', false);
+      return;
+    }
+    const c = s?.central_point;
+    const r = s?.wide_search_radius_px;
+    if (c && r && Math.hypot(pt[0] - c[0], pt[1] - c[1]) > r) {
+      this.rejectClick(
+        'outside the wide-search circle — selection works only inside it '
+        + '(enlarge with the wide-search-r slider, or bring the star in)',
+        true,
+      );
+      return;
+    }
     this.lockAt.emit({ x: pt[0], y: pt[1] });
   }
 
@@ -939,6 +1069,25 @@ export class FrameViewComponent {
 
   private loadShowCandidates(): boolean {
     try { return localStorage.getItem('frameview.showCandidates') === '1'; }
+    catch { return false; }
+  }
+
+  toggleInset(): void {
+    const next = !this.showInset();
+    this.showInset.set(next);
+    try {
+      localStorage.setItem('frameview.showInset', next ? '1' : '0');
+      localStorage.setItem('frameview.insetTouched', '1');
+    } catch { /* ignore */ }
+  }
+
+  private loadShowInset(): boolean {
+    try { return localStorage.getItem('frameview.showInset') === '1'; }
+    catch { return false; }
+  }
+
+  private insetTouched(): boolean {
+    try { return localStorage.getItem('frameview.insetTouched') === '1'; }
     catch { return false; }
   }
 

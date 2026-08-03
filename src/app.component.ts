@@ -120,20 +120,32 @@ export class AppComponent implements OnInit {
    *  would re-collapse the dialog every time the user opens it. */
   private autoCollapsed = false;
 
-  /** Pulse duration used by keyboard shortcuts. Independent of pad UI for
-   *  now (could share a service later if multiple dashboards). */
-  pulseDurationMs = signal<number>(500);
+  /** Arrow-key pixel steps selected by the number keys 1–4. Matched to
+   *  the pulse pad's px presets; on jk15 the fibre hole radius is 5 px,
+   *  so fine injection work needs the 1–5 px end of the range. (The
+   *  old 1–4 = 200–2000 ms duration bindings wrote to a signal nothing
+   *  read, while the 200 ms "minimum" moved the star ~8 px — the
+   *  2026-07-29 "factor of 10 too big" report.) */
+  readonly arrowStepPresets = [1, 5, 10, 30];
 
-  /** Arrow-key step size for pixel-mode arrows. Independent of pulse-pad
-   *  px input so the keyboard can have its own preferred step. Number-keys
-   *  1-4 still rebind ms-mode duration, but most operators will live in px
-   *  mode after we made it default. */
-  arrowStepPx = signal<number>(30);
+  /** Arrow-key step: single source of truth is the pulse pad's px
+   *  signal when a pad exists (keys 1–4 write it, the pad highlights
+   *  the active preset as visual feedback); falls back to a local
+   *  default before the first dashboard renders. */
+  private readonly fallbackStepPx = 30;
+
+  private arrowStepPx(): number {
+    return this.firstDashboard()?.pulsePad()?.pixels() ?? this.fallbackStepPx;
+  }
+
+  private setArrowStep(px: number): void {
+    this.firstDashboard()?.pulsePad()?.pixels.set(px);
+  }
 
   readonly shortcuts: { key: string; desc: string }[] = [
     { key: '?',         desc: 'toggle this panel' },
-    { key: '↑ ↓ ← →',  desc: 'pulse N / S / W / E (current duration)' },
-    { key: '1 / 2 / 3 / 4', desc: 'pulse duration → 200 / 500 / 1000 / 2000 ms' },
+    { key: '↑ ↓ ← →',  desc: 'manual pulse — move star on screen by the current px step' },
+    { key: '1 / 2 / 3 / 4', desc: 'arrow step → 1 / 5 / 10 / 30 px (pad highlights the active one)' },
     { key: 'g',         desc: 'mode → guiding' },
     { key: 'm',         desc: 'mode → monitoring' },
     { key: 'o',         desc: 'mode → off' },
@@ -148,8 +160,9 @@ export class AppComponent implements OnInit {
 
   readonly mouseShortcuts: { key: string; desc: string }[] = [
     { key: 'left-click',  desc: 'lock onto a star near click — narrow search refines to peak; mount untouched' },
-    { key: 'right-click', desc: 'move target reticle (central_point) — rare admin op, forces wide-search' },
+    { key: 'right-click', desc: 'move target reticle to clicked point — in-night adjustment; h restores calibrated home' },
     { key: 'wheel',       desc: 'zoom (cursor stays under pointer)' },
+    { key: 'reticle picker', desc: 'top bar — choose the reticle style; Classic and Tank draw through the centre and obscure the pixels at the target — for fine injection work pick an open-centre design (SciFi and Fighter leave the most room, Finder/Sniper a small gap)' },
   ];
 
   constructor() {
@@ -209,10 +222,10 @@ export class AppComponent implements OnInit {
       case 'ArrowLeft':
         dashboard?.manualPulsePx({ dx_px: -this.arrowStepPx(), dy_px: 0 });
         ev.preventDefault(); return;
-      case '1': this.pulseDurationMs.set(200); return;
-      case '2': this.pulseDurationMs.set(500); return;
-      case '3': this.pulseDurationMs.set(1000); return;
-      case '4': this.pulseDurationMs.set(2000); return;
+      case '1': this.setArrowStep(this.arrowStepPresets[0]); return;
+      case '2': this.setArrowStep(this.arrowStepPresets[1]); return;
+      case '3': this.setArrowStep(this.arrowStepPresets[2]); return;
+      case '4': this.setArrowStep(this.arrowStepPresets[3]); return;
       case 'g': dashboard?.setMode('guiding'); return;
       case 'm': dashboard?.setMode('monitoring'); return;
       case 'o': dashboard?.setMode('off'); return;

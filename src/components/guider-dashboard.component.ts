@@ -189,29 +189,43 @@ const RETICLE_KEY = 'ocabox-guider.reticle';
             </div>
           </div>
 
-          <!-- Manual pulse OR fiber tuning, depending on active method.
-               In single-star mode the pulse pad is the everyday "nudge
-               the mount" control. In fiber mode there are no individual
-               manual pulses (operator just lets the photocentroid loop
-               do its job); instead we expose the four tuning knobs that
-               actually matter for fiber guiding. -->
+          <!-- Manual pulse is ALWAYS visible — in fiber mode it is the
+               tool for hand-nudging the star toward the hole, exactly
+               when the operator needs it most (2026-07-29 field lesson:
+               the earlier either/or layout stranded the observer without
+               pulse controls mid-injection, and silently dropped the
+               keyboard-pulse RPC feedback because the pad viewChild was
+               null). Fiber tuning knobs live in a collapsed-by-default
+               disclosure below the pad. -->
+          <div class="pt-3 border-t border-zinc-800">
+            <div class="text-[11px] uppercase tracking-wider text-zinc-500 mb-2">manual pulse</div>
+            <app-pulse-pad
+              #pad
+              (pulse)="manualPulse($event)"
+              (pulsePx)="manualPulsePx($event)"
+            ></app-pulse-pad>
+          </div>
           @if (isFiberMode()) {
             <div class="pt-3 border-t border-zinc-800">
-              <div class="text-[11px] uppercase tracking-wider text-zinc-500 mb-2">fiber config</div>
-              <app-fiber-config-panel
-                #fiber
-                [state]="state()"
-                (applyParams)="applyFiberParams($event)"
-              ></app-fiber-config-panel>
-            </div>
-          } @else {
-            <div class="pt-3 border-t border-zinc-800">
-              <div class="text-[11px] uppercase tracking-wider text-zinc-500 mb-2">manual pulse</div>
-              <app-pulse-pad
-                #pad
-                (pulse)="manualPulse($event)"
-                (pulsePx)="manualPulsePx($event)"
-              ></app-pulse-pad>
+              <button
+                class="w-full flex items-center justify-between text-[11px] uppercase
+                       tracking-wider text-zinc-500 hover:text-zinc-300"
+                (click)="toggleFiberConfig()"
+                [attr.aria-expanded]="fiberConfigOpen()"
+                title="fiber tuning parameters (maintainer-coordinated)"
+              >
+                <span>fiber config</span>
+                <span class="text-zinc-600">{{ fiberConfigOpen() ? '▾' : '▸' }}</span>
+              </button>
+              @if (fiberConfigOpen()) {
+                <div class="mt-2">
+                  <app-fiber-config-panel
+                    #fiber
+                    [state]="state()"
+                    (applyParams)="applyFiberParams($event)"
+                  ></app-fiber-config-panel>
+                </div>
+              }
             </div>
           }
 
@@ -240,10 +254,28 @@ export class GuiderDashboardComponent {
   frameView = viewChild<FrameViewComponent>('frame');
   fiberPanel = viewChild<FiberConfigPanelComponent>('fiber');
 
-  /** Method-aware UI branching: when fiber is active the manual-pulse
-   *  pad is replaced by the fiber config panel (different operator
-   *  workflow, different controls). */
+  /** Method-aware UI branching: fiber mode adds the tuning-knob
+   *  disclosure (collapsed by default) and swaps overlay semantics.
+   *  The manual-pulse pad renders in every method. */
   isFiberMode = computed(() => this.state()?.method === 'fiber_photocentroid');
+
+  /** Fiber-config disclosure state, persisted so an operator who works
+   *  with the knobs open keeps them open across reloads. Collapsed by
+   *  default — the knobs are maintainer-coordinated tuning, not
+   *  every-night controls, and expanding them must never displace the
+   *  manual-pulse pad again. */
+  fiberConfigOpen = signal<boolean>(this.loadFiberConfigOpen());
+
+  toggleFiberConfig(): void {
+    const next = !this.fiberConfigOpen();
+    this.fiberConfigOpen.set(next);
+    try { localStorage.setItem('dashboard.fiberConfigOpen', next ? '1' : '0'); } catch { /* ignore */ }
+  }
+
+  private loadFiberConfigOpen(): boolean {
+    try { return localStorage.getItem('dashboard.fiberConfigOpen') === '1'; }
+    catch { return false; }
+  }
 
   reticle = signal<ReticleStyle>(this.loadReticle());
 

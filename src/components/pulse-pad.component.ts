@@ -133,7 +133,11 @@ import { FormsModule } from '@angular/forms';
              [class.text-emerald-400]="st.ok"
              [class.text-red-400]="!st.ok">{{ st.message }}</div>
       } @else {
-        <div class="text-[11px] text-zinc-600 mt-1">arrow keys move the star on screen (px mode)</div>
+        <div class="text-[11px] text-zinc-600 mt-1">
+          arrow keys move the star by the step above; 1/2/3/4 set the
+          step (1/5/10/30 px). A 1 px request may be skipped or snapped
+          by the mount-side minimum — repeat presses average out right.
+        </div>
       }
     </div>
   `,
@@ -154,7 +158,13 @@ export class PulsePadComponent {
   disabled = computed(() => false);
 
   readonly msPresets = [200, 500, 1000, 2000];
-  readonly pxPresets = [10, 30, 100, 200];
+  // Fibre-hole radius is 5 px — fine injection work lives in the
+  // 1–5 px range (2026-07-29 field lesson: the previous 10 px minimum
+  // was twice the hole radius). Requests below the mount's reliable
+  // minimum are legitimate: the server-side min-pulse policy
+  // (skip / snap_half / stochastic) keeps 1 px steps unbiased over a
+  // few presses.
+  readonly pxPresets = [1, 5, 10, 30];
 
   constructor() {
     // Persist mode on every toggle. Single source of truth = signal,
