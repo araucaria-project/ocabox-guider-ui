@@ -55,8 +55,11 @@ const WHEEL_FACTOR = 1.2;
   imports: [CommonModule, ReticleComponent],
   template: `
     <div class="relative w-full h-full bg-black select-none overflow-hidden" #host>
-      <!-- Pan/zoom wrapper. Holds both image and SVG so they stay aligned;
-           getScreenCTM() picks up the CSS transform automatically. -->
+      <!-- Pan/zoom wrapper. Holds both image and SVG so they stay
+           aligned. NOTE: click→sensor mapping must NOT rely on
+           getScreenCTM() — Gecko ignores ancestor CSS transforms in it
+           (see svgPoint()); we derive coordinates from
+           getBoundingClientRect() instead. -->
       <div
         class="absolute inset-0 origin-top-left will-change-transform"
         [style.transform]="transformStyle()"
@@ -977,14 +980,25 @@ export class FrameViewComponent {
   private svgPoint(ev: MouseEvent): [number, number] | null {
     const svg = ev.currentTarget as SVGSVGElement | null;
     if (!svg) return null;
-    const ctm = svg.getScreenCTM();
-    if (!ctm) return null;
-    const inverse = ctm.inverse();
-    const pt = svg.createSVGPoint();
-    pt.x = ev.clientX;
-    pt.y = ev.clientY;
-    const local = pt.matrixTransform(inverse);
-    return [local.x, local.y];
+    // Screen → sensor conversion WITHOUT getScreenCTM(): Gecko does not
+    // compose CSS transforms of HTML ancestors into the CTM (bugzilla
+    // #1610093), so under our wrapper-div `translate(pan) scale(zoom)`
+    // Firefox mapped clicks as if zoom = 1 — the right-click reticle
+    // "ran away" under zoom (masked on left-click by the solver's
+    // narrow-search snap). getBoundingClientRect() reflects the full
+    // transform chain in every engine; the viewBox mapping
+    // (`preserveAspectRatio="xMidYMid meet"` = uniform scale, centred
+    // letterbox) is reproduced explicitly below. Uniformity of the
+    // zoom means the letterbox math is identical on the scaled rect,
+    // and pan is absorbed by rect.left/top.
+    const rect = svg.getBoundingClientRect();
+    const vbW = this.sensorWidth();
+    const vbH = this.sensorHeight();
+    if (!vbW || !vbH || rect.width <= 0 || rect.height <= 0) return null;
+    const scale = Math.min(rect.width / vbW, rect.height / vbH);
+    const offX = rect.left + (rect.width - vbW * scale) / 2;
+    const offY = rect.top + (rect.height - vbH * scale) / 2;
+    return [(ev.clientX - offX) / scale, (ev.clientY - offY) / scale];
   }
 }
 
