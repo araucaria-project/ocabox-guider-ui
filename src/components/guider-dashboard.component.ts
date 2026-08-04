@@ -60,6 +60,7 @@ const RETICLE_KEY = 'ocabox-guider.reticle';
         (methodRequested)="setMethod($event)"
         (acquireRequested)="acquire()"
         (dropToReticleRequested)="dropToReticle()"
+        (refineReticleRequested)="refineReticle()"
         (reticleHomeRequested)="reticleHome()"
         (reticleChanged)="setReticle($event)"
       ></app-mode-toolbar>
@@ -440,6 +441,53 @@ export class GuiderDashboardComponent {
   dropToReticle(): void {
     this.runRpc('drop_to_reticle', () =>
       this.store.dropToReticle(this.guider().instance, this.firstPipelineId()));
+  }
+
+  /** Commit the server's measured reticle target to ``central_point``.
+   *
+   *  The gate is the server's ``hole_candidate.refinable`` flag, checked
+   *  here only to guarantee we never send a command the operator's
+   *  control was showing as disabled — the server re-validates (and can
+   *  refuse a measurement that went stale in the meantime), and its
+   *  ``error`` text is what the operator gets to read.
+   *
+   *  Feedback goes to the frame overlay notice (the same surface as the
+   *  wide-search click guard): this action moves the target the operator
+   *  is staring at, so the outcome belongs on the frame, not only in the
+   *  camera-panel status line. */
+  refineReticle(): void {
+    const cand = this.state()?.hole_candidate;
+    if (!cand?.refinable) return;
+    const report = (ok: boolean, notice: string, log: string) => {
+      this.frameView()?.showNotice(notice, ok ? 'ok' : 'error');
+      this.cameraPanel()?.reportRpc(ok, log);
+    };
+    this.store.refineReticle(this.guider().instance, this.firstPipelineId())
+      .then((res: any) => {
+        // Two envelopes to peel: the RPC transport wraps every handler
+        // return as {status, result}, and the command itself answers
+        // {status: ok|error, …} inside that. A refusal therefore arrives
+        // as transport-ok + command-error — reading only the outer
+        // status would announce success for a rejected refinement.
+        const inner = res?.result ?? res;
+        const failed = res?.status === 'error' || inner?.status === 'error';
+        if (failed) {
+          const err = inner?.error ?? res?.detail ?? res?.error ?? 'refused without a reason';
+          report(false, `refine reticle: ${err}`, `refine_reticle failed: ${err}`);
+          return;
+        }
+        const off = Number(inner?.offset_px);
+        const shown = Number.isFinite(off) ? `${off.toFixed(2)} px` : 'the measured offset';
+        report(
+          true,
+          `reticle refined — moved ${shown} onto the measured target`,
+          'refine_reticle ok',
+        );
+      })
+      .catch(e => {
+        const err = (e as Error).message ?? String(e);
+        report(false, `refine reticle: ${err}`, `refine_reticle error: ${err}`);
+      });
   }
 
   /** Restore the reticle to its camera-default position (from YAML

@@ -8,7 +8,7 @@ import { RETICLES, RETICLE_LABELS, ReticleStyle } from './reticle.component';
  *
  *   row 1: method radio       — single | multi (soon) | fiber
  *   row 2: mode buttons       — off | monitoring | guiding   + re-acquire
- *   row 3: target actions     — drop → reticle | reticle picker + home
+ *   row 3: target actions     — drop → reticle | refine reticle | reticle picker + home
  *
  * Method is the topmost choice because it changes the meaning of every
  * other control below: in fiber mode there are no candidates, no
@@ -76,6 +76,19 @@ import { RETICLES, RETICLE_LABELS, ReticleStyle } from './reticle.component';
           (click)="dropToReticleRequested.emit()">
           drop → reticle
         </button>
+        <!-- Always rendered, enabled only while the server says the
+             measurement is usable (hole_candidate.refinable). A
+             control that vanishes teaches the operator nothing; a
+             greyed one with the reason in its tooltip explains itself.
+             The label carries the measured offset so the operator can
+             judge the size of the move before committing it. -->
+        <button
+          class="rounded px-3 py-1.5 text-xs font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-100 disabled:opacity-40 disabled:cursor-not-allowed"
+          [disabled]="!refineEnabled()"
+          [title]="refineTitle()"
+          (click)="refineEnabled() && refineReticleRequested.emit()">
+          {{ refineLabel() }}
+        </button>
 
         <span class="flex-1"></span>
 
@@ -109,6 +122,7 @@ export class ModeToolbarComponent {
   methodRequested = output<string>();
   acquireRequested = output<void>();
   dropToReticleRequested = output<void>();
+  refineReticleRequested = output<void>();
   reticleHomeRequested = output<void>();
   reticleChanged = output<ReticleStyle>();
 
@@ -118,6 +132,35 @@ export class ModeToolbarComponent {
   dropEnabled = computed(() => {
     const s = this.state();
     return !!s && s.mode === 'guiding' && s.acquired;
+  });
+
+  /** Latest measured reticle target from the state stream. ``null`` most
+   *  of the time — the detector only reports when it has something. */
+  private candidate = computed(() => this.state()?.hole_candidate ?? null);
+
+  /** The action is offered exactly when the server says its own
+   *  measurement is usable. Deliberately not second-guessed here: the
+   *  server re-validates on the request, and duplicating its gate
+   *  client-side would drift out of sync with the detector's tuning. */
+  refineEnabled = computed(() => this.candidate()?.refinable === true);
+
+  /** Label carries the measurement when there is one to act on, so the
+   *  operator sees how far the reticle would move before clicking. */
+  refineLabel = computed(() => {
+    const c = this.candidate();
+    const off = Number(c?.offset_px);
+    return this.refineEnabled() && Number.isFinite(off)
+      ? `refine reticle ${off.toFixed(1)} px`
+      : 'refine reticle';
+  });
+
+  /** Tooltip is the server's own operator-facing ``reason`` whenever a
+   *  measurement exists — usable or not, it is the honest explanation of
+   *  what the detector currently sees. */
+  refineTitle = computed(() => {
+    const c = this.candidate();
+    if (!c) return 'no reticle-target measurement — put a bright source on the reticle';
+    return c.reason || 'measured reticle target available';
   });
 
   /** Reticle "home" only meaningful when the camera config provides a

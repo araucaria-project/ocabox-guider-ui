@@ -132,20 +132,25 @@ const WHEEL_FACTOR = 1.2;
           </div>
         }
 
-        <!-- Transient click-rejection notice (wide-search guard). -->
+        <!-- Transient notice: click rejections (wide-search guard) and
+             target-command outcomes (refine reticle). One surface, two
+             tones — red for refusals, emerald for "it happened". -->
         @if (clickNotice(); as msg) {
           <div class="absolute bottom-7 left-1/2 -translate-x-1/2 max-w-[80%]
-                      px-2 py-1 text-[11px] rounded bg-red-950/90 text-red-200
-                      border border-red-700/60 pointer-events-none text-center">
+                      px-2 py-1 text-[11px] rounded border
+                      pointer-events-none text-center"
+               [class]="noticeKind() === 'ok'
+                        ? 'bg-emerald-950/90 text-emerald-200 border-emerald-700/60'
+                        : 'bg-red-950/90 text-red-200 border-red-700/60'">
             {{ msg }}
           </div>
         }
 
         <!-- Method badge — visible only when fiber mode is active so
              the operator never confuses what they're seeing (no
-             candidate circles, no narrow box, filled black disc at
-             centre means fiber). single_star is the default and
-             needs no label. -->
+             candidate circles, no narrow box, sky ring of the reticle
+             radius at the centre means fiber). single_star is the
+             default and needs no label. -->
         @if (isFiberMode()) {
           <div class="absolute bottom-1 right-2 px-2 py-0.5 text-[10px]
                       font-mono uppercase tracking-wider rounded
@@ -204,22 +209,27 @@ const WHEEL_FACTOR = 1.2;
               />
             }
 
-            <!-- Fiber hole — filled semi-transparent black disc of
-                 radius 'fiber_radius_px' at 'central_point'. Marks
-                 the spectrograph fibre entrance so the operator sees
-                 exactly where light gets coupled away from the
-                 detector. The analysis window (used by the photocentroid
-                 method) extends to 'analysis_radius_px', drawn as a
-                 thin sky-blue ring so the operator can see the
-                 still-being-measured region. -->
+            <!-- Reticle radius marker — outline-only ring of radius
+                 'fiber_radius_px' at 'central_point'. Marks the
+                 light-absorbing target (for BESO: the spectrograph
+                 fibre entrance) so the operator sees where light gets
+                 coupled away from the detector. It used to be a filled
+                 semi-transparent disc, which hid exactly the pixels
+                 the operator has to judge — the entrance itself is
+                 visible as a dark disk inside the halo (confirmed on
+                 the 2026-08-03 screenshots), and a fill over it makes
+                 that unreadable. The analysis window (used by the
+                 photocentroid method) extends to 'analysis_radius_px',
+                 drawn as a thin sky-blue ring so the operator can see
+                 the still-being-measured region. -->
             @if (isFiberMode()) {
               <circle
                 [attr.cx]="s.central_point[0]"
                 [attr.cy]="s.central_point[1]"
                 [attr.r]="fiberRadiusPx()"
-                fill="rgba(0, 0, 0, 0.55)"
-                stroke="rgba(56, 189, 248, 0.7)"
-                [attr.stroke-width]="overlayStrokePx() * 0.8"
+                fill="none"
+                stroke="rgba(56, 189, 248, 0.9)"
+                [attr.stroke-width]="overlayStrokePx()"
                 vector-effect="non-scaling-stroke"
                 pointer-events="none"
               />
@@ -556,16 +566,20 @@ const WHEEL_FACTOR = 1.2;
                    operator can read photocentroid position vs reticle
                    at the magnified scale. -->
               @if (state(); as s) {
-                <!-- Fiber-method overlays only: hole disc + analysis
-                     ring visualise fiber_photocentroid parameters and
-                     mean nothing in other methods. -->
+                <!-- Fiber-method overlays only: reticle-radius ring +
+                     analysis ring visualise fiber_photocentroid
+                     parameters and mean nothing in other methods.
+                     Outline-only, never filled: this inset exists so
+                     the operator can read the dark entrance disk in the
+                     halo, and a fill would cover the one thing they
+                     came here to see. -->
                 @if (isFiberMode()) {
                   <circle
                     [attr.cx]="s.central_point[0]"
                     [attr.cy]="s.central_point[1]"
                     [attr.r]="fiberRadiusPx()"
-                    fill="rgba(0, 0, 0, 0.45)"
-                    stroke="rgba(56, 189, 248, 0.85)"
+                    fill="none"
+                    stroke="rgba(56, 189, 248, 0.9)"
                     stroke-width="0.5"
                     vector-effect="non-scaling-stroke"/>
                   <circle
@@ -596,6 +610,32 @@ const WHEEL_FACTOR = 1.2;
                   stroke="rgba(125, 211, 252, 0.9)"
                   stroke-width="0.6"
                   vector-effect="non-scaling-stroke"/>
+                <!-- Measured reticle target — where the server's
+                     detector says the absorbing feature actually is.
+                     Amber dashed ring of the detector's own radius, so
+                     the gap between it and the cyan reticle cross *is*
+                     the offset the refine action would remove. Drawn
+                     only here: the whole judgement happens at this
+                     magnification, and the main view must not gain
+                     permanent chrome for a field that is null most of
+                     the time. -->
+                @if (s.hole_candidate; as hc) {
+                  <circle
+                    [attr.cx]="hc.x"
+                    [attr.cy]="hc.y"
+                    [attr.r]="holeMarkerRadiusPx()"
+                    fill="none"
+                    stroke="rgba(251, 191, 36, 0.95)"
+                    stroke-width="0.5"
+                    stroke-dasharray="1.5,1.2"
+                    vector-effect="non-scaling-stroke"/>
+                  <circle
+                    [attr.cx]="hc.x"
+                    [attr.cy]="hc.y"
+                    r="0.4"
+                    fill="rgba(251, 191, 36, 0.95)"
+                    stroke="none"/>
+                }
                 <!-- Acquired-position marker (photocentroid in fiber
                      mode, locked star otherwise). -->
                 @if (s.acquired && s.acquired_pos) {
@@ -611,10 +651,17 @@ const WHEEL_FACTOR = 1.2;
               }
             </svg>
           </div>
-          <!-- Tiny scale label below the inset. -->
+          <!-- Tiny scale label below the inset, plus a one-line legend
+               for the measured-target ring while one exists (it is null
+               most of the time, so this costs no permanent space). -->
           <div class="mt-0.5 text-[9px] font-mono text-sky-300/70 text-center">
             ±{{ subrasterHalfPx() | number:'1.0-0' }} px
           </div>
+          @if (state()?.hole_candidate) {
+            <div class="text-[9px] font-mono text-amber-300/80 text-center">
+              ◌ measured reticle target
+            </div>
+          }
         </div>
       }
 
@@ -730,19 +777,31 @@ export class FrameViewComponent {
   /** Wide-search click guard state: brief red blink of the circle +
    *  transient notice when a click is rejected (outside the circle, or
    *  a selection click in fiber mode). Local mini-notice — no global
-   *  toast infrastructure exists yet by design. */
+   *  toast infrastructure exists yet by design. Also carries outcomes
+   *  of target commands issued from the toolbar (refine reticle), so
+   *  operator feedback lands where the operator is looking. */
   wideBlink = signal<boolean>(false);
   clickNotice = signal<string | null>(null);
+  noticeKind = signal<'error' | 'ok'>('error');
   private noticeTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Show a transient notice over the frame. ``kind`` selects the tone
+   *  (refusal vs confirmation); the message auto-clears. Public so the
+   *  parent dashboard can report target-command outcomes through the
+   *  same surface as the click guard. */
+  showNotice(message: string, kind: 'error' | 'ok' = 'error'): void {
+    this.noticeKind.set(kind);
+    this.clickNotice.set(message);
+    if (this.noticeTimer) clearTimeout(this.noticeTimer);
+    this.noticeTimer = setTimeout(() => this.clickNotice.set(null), 3500);
+  }
 
   private rejectClick(message: string, blink: boolean): void {
     if (blink) {
       this.wideBlink.set(true);
       setTimeout(() => this.wideBlink.set(false), 900);
     }
-    this.clickNotice.set(message);
-    if (this.noticeTimer) clearTimeout(this.noticeTimer);
-    this.noticeTimer = setTimeout(() => this.clickNotice.set(null), 3500);
+    this.showNotice(message, 'error');
   }
 
   readonly ZOOM_MIN = ZOOM_MIN;
@@ -859,6 +918,16 @@ export class FrameViewComponent {
     const mp = this.state()?.method_params;
     const v = Number(mp?.['analysis_radius_px']);
     return Number.isFinite(v) && v > 0 ? v : 15;
+  });
+
+  /** Radius (sensor px) of the measured-reticle-target marker. The
+   *  detector's own ``hole_detect.radius_px`` is authoritative — it is
+   *  what was matched against the image; ``fiber_radius_px`` is the
+   *  solver's view of the same feature and only a fallback for services
+   *  that don't publish the detector config. */
+  holeMarkerRadiusPx = computed<number>(() => {
+    const v = Number(this.state()?.hole_detect?.radius_px);
+    return Number.isFinite(v) && v > 0 ? v : this.fiberRadiusPx();
   });
 
   /** Subraster (magnifier inset) half-size in sensor pixels — set

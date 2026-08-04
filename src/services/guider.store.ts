@@ -44,6 +44,31 @@ export interface PipelineInfo {
   rpcs: string[];
 }
 
+/**
+ * Measured reticle target — the server's running estimate of where the
+ * light-absorbing feature at the reticle (for BESO: the spectrograph
+ * fibre entrance) actually is, in FULL-SENSOR pixels, i.e. the same
+ * coordinate space as ``central_point`` and ``acquired_pos``.
+ *
+ * Published on the state subject roughly once per second and ``null``
+ * most of the time during normal guiding — that is the expected resting
+ * state, not an error. ``refinable`` is the authoritative "the refine
+ * action is allowed right now" gate (the server re-validates on the
+ * actual request anyway); ``reason`` is short operator-facing text and
+ * is present whether or not the measurement is usable.
+ */
+export interface HoleCandidate {
+  x: number;
+  y: number;
+  offset_px: number;
+  snr: number;
+  scatter_px: number;
+  samples: number;
+  refinable: boolean;
+  reason: string;
+  ts_monotonic: number;
+}
+
 export interface PipelineState {
   pipeline_id: string;
   camera_id: string;
@@ -65,6 +90,14 @@ export interface PipelineState {
    *  after pipeline boot. UI uses for the "home" reticle button to
    *  restore after dragging. ``null`` when not configured. */
   central_point_default: [number, number] | null;
+  /** Measured reticle target, or ``null`` when the detector has nothing
+   *  to report. Drives the "refine reticle" action and the magnifier's
+   *  measured-target marker. See ``HoleCandidate``. */
+  hole_candidate: HoleCandidate | null;
+  /** Reticle-target detector tuning as published by the server. Only
+   *  ``radius_px`` is read by the UI (marker size); the rest is
+   *  maintainer-side tuning. Optional — older services don't publish it. */
+  hole_detect?: { radius_px?: number };
   wide_search_radius_px: number;
   search_reg_px: number;
   acquired: boolean;
@@ -376,6 +409,19 @@ export class GuiderStore {
    *  triggers this to make the controller pull the star into the fibre. */
   async dropToReticle(instance: string, pipelineId: string): Promise<unknown> {
     return this.callRpc(instance, pipelineId, 'drop_to_reticle', {});
+  }
+
+  /** Move the reticle onto the measured reticle target — commits the
+   *  server's own measurement (``state.hole_candidate``) to
+   *  ``central_point``. Takes no arguments on purpose: the server acts
+   *  on what its detector believes *now* and re-validates the whole
+   *  gate (usable measurement, freshness, offset band), so the UI never
+   *  gets to talk it into moving somewhere. Returns ``{status: 'ok',
+   *  central_point, offset_px, …}`` or ``{status: 'error', error}``.
+   *  ``central_point_default`` is untouched, so ``h`` (home) remains the
+   *  way back to the afternoon calibration. */
+  async refineReticle(instance: string, pipelineId: string): Promise<unknown> {
+    return this.callRpc(instance, pipelineId, 'refine_reticle', {});
   }
 
   /** Pixel-mode pulse — operator says "move the star (dx, dy) px in

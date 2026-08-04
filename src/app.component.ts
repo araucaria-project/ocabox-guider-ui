@@ -80,7 +80,7 @@ import { GuiderDashboardComponent } from './components/guider-dashboard.componen
                       (click)="shortcutsOpen.set(false)">✕</button>
             </div>
 
-            <h3 class="text-[11px] uppercase tracking-wider text-zinc-500 mt-2 mb-1">Frame view (mouse)</h3>
+            <h3 class="text-[11px] uppercase tracking-wider text-zinc-500 mt-2 mb-1">Frame view — mouse &amp; controls</h3>
             <table class="w-full text-sm font-mono mb-3">
               <tbody class="text-zinc-300">
                 @for (row of mouseShortcuts; track row.key) {
@@ -162,6 +162,8 @@ export class AppComponent implements OnInit {
     { key: 'left-click',  desc: 'lock onto a star near click — narrow search refines to peak; mount untouched' },
     { key: 'right-click', desc: 'move target reticle to clicked point — in-night adjustment; h restores calibrated home' },
     { key: 'wheel',       desc: 'zoom (cursor stays under pointer)' },
+    { key: 'refine reticle', desc: 'top bar — move the reticle onto the measured reticle target (the guider measures it in the image); enabled only while the measurement is usable, label shows the offset, tooltip says why when it is not' },
+    { key: 'magnifier', desc: 'amber dashed ring = measured reticle target, cyan cross = where the guider aims; the gap between them is what refine reticle removes' },
     { key: 'reticle picker', desc: 'top bar — choose the reticle style; Classic and Tank draw through the centre and obscure the pixels at the target — for fine injection work pick an open-centre design (SciFi and Fighter leave the most room, Finder/Sniper a small gap)' },
   ];
 
