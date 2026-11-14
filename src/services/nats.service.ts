@@ -1,20 +1,18 @@
 import { Injectable, signal } from '@angular/core';
 import {
   connect,
-  consumerOpts,
-  createInbox,
   StringCodec,
   NatsConnection,
   Subscription,
-  JetStreamClient,
-  JetStreamSubscription,
+  JetStreamManager,
   Msg,
   JsMsg,
 } from 'nats.ws';
+import { JetStreamTail } from './jetstream-tail';
 
 export type SubjectHandler = (subject: string, data: unknown) => void;
 
-interface PendingSub {
+interface Registration {
   pattern: string;
   handler: SubjectHandler;
   mode: 'core' | 'js';
@@ -25,18 +23,32 @@ const URL_KEY = 'ocabox-guider.url';
 @Injectable({ providedIn: 'root' })
 export class NatsService {
   private nc: NatsConnection | null = null;
-  private js: JetStreamClient | null = null;
+  private jsm: JetStreamManager | null = null;
   private codec = StringCodec();
+  /**
+   * Everything the app asked to follow, keyed by mode + pattern. Outlives
+   * connections: every connect attaches it anew, a disconnect only drops
+   * what was attached.
+   */
+  private registry = new Map<string, Registration>();
   private coreSubs: Subscription[] = [];
-  private jsSubs: JetStreamSubscription[] = [];
-  private pending: PendingSub[] = [];
-  private subscribed = new Set<string>();
+  private tails: JetStreamTail[] = [];
 
   isConnected = signal(false);
   isConnecting = signal(false);
   connectionError = signal<string | null>(null);
   serverUrl = signal<string>(this.loadSavedUrl());
   messagesReceived = signal(0);
+
+  constructor() {
+    // A page that goes away deletes its consumers on the broker instead of
+    // leaving them to the inactive threshold. One restored from the
+    // back/forward cache connects again, like a freshly loaded one.
+    window.addEventListener('pagehide', () => void this.disconnect());
+    window.addEventListener('pageshow', e => {
+      if (e.persisted) this.connect(this.serverUrl()).catch(() => { /* error already on signal */ });
+    });
+  }
 
   private loadSavedUrl(): string {
     try {
@@ -61,11 +73,12 @@ export class NatsService {
       target = (isHttps ? 'wss://' : 'ws://') + target;
     }
 
-    if (this.nc) await this.disconnect();
     this.connectionError.set(null);
     this.isConnecting.set(true);
 
     try {
+      if (this.nc) await this.disconnect();
+
       this.nc = await connect({
         servers: [target],
         // After a SUCCESSFUL first connect, reconnect indefinitely.
@@ -81,21 +94,16 @@ export class NatsService {
         timeout: 5000,
         name: 'ocabox-guider-ui',
       });
-      this.js = this.nc.jetstream();
+      // No API check here: a broker without JetStream fails the tails, not the connection.
+      this.jsm = await this.nc.jetstreamManager({ checkAPI: false });
 
       this.isConnected.set(true);
       this.serverUrl.set(target);
       this.saveUrl(target);
       console.info('[nats] connected', target);
 
-      // Re-attach pending subscriptions
-      const queued = this.pending.slice();
-      this.pending = [];
-      this.subscribed.clear();
-      for (const p of queued) {
-        if (p.mode === 'js') this.attachJS(p.pattern, p.handler);
-        else this.attachCore(p.pattern, p.handler);
-      }
+      // Attach everything registered so far to the new connection
+      for (const reg of this.registry.values()) this.attach(reg);
 
       // Watch status events
       (async () => {
@@ -126,16 +134,17 @@ export class NatsService {
   }
 
   async disconnect(): Promise<void> {
-    for (const s of this.jsSubs) { try { s.unsubscribe(); } catch { /* ignore */ } }
+    const tails = this.tails;
+    this.tails = [];
     for (const s of this.coreSubs) { try { s.unsubscribe(); } catch { /* ignore */ } }
-    this.jsSubs = [];
     this.coreSubs = [];
-    this.subscribed.clear();
+    // The tails delete their consumers on the broker; only then may the connection go.
+    await Promise.all(tails.map(t => t.stop()));
     if (this.nc) {
       try { await this.nc.close(); } catch { /* ignore */ }
       this.nc = null;
     }
-    this.js = null;
+    this.jsm = null;
     this.isConnected.set(false);
   }
 
@@ -145,18 +154,12 @@ export class NatsService {
    * thumbnail.ready notifications.
    */
   subscribeJS(pattern: string, handler: SubjectHandler): void {
-    const key = `js:${pattern}`;
-    if (this.subscribed.has(key)) return;
-    if (this.js && this.isConnected()) this.attachJS(pattern, handler);
-    else this.pending.push({ pattern, handler, mode: 'js' });
+    this.register({ pattern, handler, mode: 'js' });
   }
 
   /** Core NATS subscription (no replay). Reserved for future use. */
   subscribeCore(pattern: string, handler: SubjectHandler): void {
-    const key = `core:${pattern}`;
-    if (this.subscribed.has(key)) return;
-    if (this.nc && this.isConnected()) this.attachCore(pattern, handler);
-    else this.pending.push({ pattern, handler, mode: 'core' });
+    this.register({ pattern, handler, mode: 'core' });
   }
 
   /**
@@ -202,33 +205,19 @@ export class NatsService {
     }
   }
 
-  private attachJS(pattern: string, handler: SubjectHandler): void {
-    if (!this.js) return;
-    const key = `js:${pattern}`;
-    this.subscribed.add(key);
-
-    const opts = consumerOpts();
-    opts.deliverLastPerSubject();
-    opts.ackNone();
-    opts.replayInstantly();
-    opts.deliverTo(createInbox());
-    opts.inactiveEphemeralThreshold(60_000_000_000);
-
-    (async () => {
-      try {
-        const sub = await this.js!.subscribe(pattern, opts);
-        this.jsSubs.push(sub);
-        for await (const m of sub) this.dispatch(m, handler);
-      } catch (err) {
-        console.warn('[nats] JS subscribe failed', pattern, err);
-      }
-    })();
+  private register(reg: Registration): void {
+    const key = `${reg.mode}:${reg.pattern}`;
+    if (this.registry.has(key)) return;
+    this.registry.set(key, reg);
+    if (this.isConnected()) this.attach(reg);
   }
 
-  private attachCore(pattern: string, handler: SubjectHandler): void {
-    if (!this.nc) return;
-    const key = `core:${pattern}`;
-    this.subscribed.add(key);
+  private attach({ pattern, handler, mode }: Registration): void {
+    if (!this.nc || !this.jsm) return;
+    if (mode === 'js') {
+      this.tails.push(new JetStreamTail(this.jsm, pattern, m => this.dispatch(m, handler)));
+      return;
+    }
     const sub = this.nc.subscribe(pattern);
     this.coreSubs.push(sub);
     (async () => {
